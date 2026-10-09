@@ -1,0 +1,6 @@
+[toolchain]
+# Host toolchain for tests: litesvm 0.17 (agave 4.3) needs rustc >= 1.97.1.
+# SBF builds use platform-tools' own rustc (1.95) — unaffected.
+channel = "1.99.0"
+components = ["rustfmt","clippy"]
+profile = "minimal"

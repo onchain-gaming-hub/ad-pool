@@ -7,3 +7,8 @@ test-ledger/
 .DS_Store
 dist/
 .wrangler/
+.yarn
+.surfpool
+**/*.rs.bk
+# program / wallet keypairs — never commit
+*-keypair.json

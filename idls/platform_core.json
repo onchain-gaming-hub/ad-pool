@@ -1,0 +1,2344 @@
+{
+  "address": "AJnPSYsn7J2muHfKztRtpZz5kBP94dWkNZLr9aMhu18G",
+  "metadata": {
+    "name": "platform_core",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "platform-core — shared RBAC, game registry, fee config, treasury, boost allowlist and default ads for blockchain-games-hub"
+  },
+  "instructions": [
+    {
+      "name": "allow_mint",
+      "docs": [
+        "AllowlistManager | Admin. Also creates the Treasury ATA for the mint."
+      ],
+      "discriminator": [
+        240,
+        28,
+        240,
+        70,
+        124,
+        240,
+        245,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "docs": [
+            "Acts under `auth_role_kind`; pays rent for `AllowedMint` (+ the ATA if new)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "docs": [
+            "SPL Token or Token-2022 mint, owned by `token_program`."
+          ]
+        },
+        {
+          "name": "allowed_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  115,
+                  116,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_ata",
+          "docs": [
+            "ATA(treasury, mint, token_program)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_default_ad",
+      "docs": [
+        "Moderator | Admin. One default ad per (width, height)."
+      ],
+      "discriminator": [
+        240,
+        175,
+        212,
+        226,
+        145,
+        39,
+        238,
+        137
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "docs": [
+            "Acts under `auth_role_kind`; pays rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "default_ad",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  102,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  97,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "width"
+              },
+              {
+                "kind": "arg",
+                "path": "height"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        },
+        {
+          "name": "width",
+          "type": "u16"
+        },
+        {
+          "name": "height",
+          "type": "u16"
+        },
+        {
+          "name": "creative",
+          "type": {
+            "defined": {
+              "name": "AdCreative"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "disallow_mint",
+      "docs": [
+        "AllowlistManager | Admin. Treasury ATA is kept."
+      ],
+      "discriminator": [
+        75,
+        176,
+        193,
+        187,
+        34,
+        158,
+        118,
+        121
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "allowed_mint",
+          "docs": [
+            "`Account<AllowedMint>` (owner + discriminator) is enough: platform-core only",
+            "creates it at `[BOOST_MINT_SEED, mint]`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "added_by",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "force_set_game_owner",
+      "docs": [
+        "Admin only — recovery when the owner lost its key."
+      ],
+      "discriminator": [
+        187,
+        167,
+        245,
+        60,
+        147,
+        225,
+        166,
+        251
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "admin_role"
+        },
+        {
+          "name": "game_entry",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_owner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "grant_role",
+      "docs": [
+        "Admin only."
+      ],
+      "discriminator": [
+        218,
+        234,
+        128,
+        15,
+        82,
+        33,
+        236,
+        253
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Must hold Admin; pays rent and becomes `granted_by` (rent returns here on revoke)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "admin_role"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "role_member",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "role",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        },
+        {
+          "name": "member",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "One-time bootstrap. Signer must be the program's upgrade authority."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "Upgrade authority of this program; pays rent for the three accounts."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "program",
+          "address": "AJnPSYsn7J2muHfKztRtpZz5kBP94dWkNZLr9aMhu18G"
+        },
+        {
+          "name": "program_data"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin_role",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "boost_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "ad_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "first_admin",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "register_game",
+      "docs": [
+        "GameRegistrar | Admin + the game owner co-signs."
+      ],
+      "discriminator": [
+        122,
+        44,
+        95,
+        58,
+        89,
+        33,
+        40,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "docs": [
+            "Acts under `auth_role_kind`; pays rent and is recorded as `registered_by`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "Future `GameEntry.owner`."
+          ],
+          "signer": true
+        },
+        {
+          "name": "game_program",
+          "docs": [
+            "(upgradeable-loader) program, and not one of the value-moving system programs",
+            "or platform-core itself: every Active game lands on the relayer's co-sign",
+            "allowlist, so these must never be registrable (fee drain / fund movement).",
+            "⚠️ The owner check alone is NOT enough: SPL Token, Token-2022 and Stake are",
+            "core-BPF programs owned by the upgradeable loader too — hence the denylist."
+          ]
+        },
+        {
+          "name": "game_entry",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "renounce_role",
+      "docs": [
+        "The member drops its own role. The last Admin cannot renounce."
+      ],
+      "discriminator": [
+        21,
+        253,
+        233,
+        162,
+        186,
+        216,
+        217,
+        26
+      ],
+      "accounts": [
+        {
+          "name": "member",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "role_member",
+          "writable": true
+        },
+        {
+          "name": "granted_by",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "role",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "revoke_role",
+      "docs": [
+        "Admin only. Cannot remove the last Admin."
+      ],
+      "discriminator": [
+        179,
+        232,
+        2,
+        180,
+        48,
+        227,
+        82,
+        7
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "admin_role"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "role_member",
+          "writable": true
+        },
+        {
+          "name": "granted_by",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "role",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        },
+        {
+          "name": "member",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_default_ad_enabled",
+      "docs": [
+        "Moderator | Admin. Disabled = FE shows nothing for that size."
+      ],
+      "discriminator": [
+        118,
+        164,
+        249,
+        94,
+        158,
+        57,
+        196,
+        29
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "default_ad",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        },
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_fee",
+      "docs": [
+        "FeeManager | Admin (signer acts under `auth_role_kind`)."
+      ],
+      "discriminator": [
+        18,
+        154,
+        24,
+        18,
+        237,
+        214,
+        19,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        },
+        {
+          "name": "kind",
+          "type": {
+            "defined": {
+              "name": "FeeKind"
+            }
+          }
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "set_game_status",
+      "docs": [
+        "GameRegistrar | Admin."
+      ],
+      "discriminator": [
+        85,
+        176,
+        140,
+        17,
+        74,
+        137,
+        124,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "game_entry",
+          "docs": [
+            "`Account<GameEntry>` (owner + discriminator) is enough here: platform-core only",
+            "ever creates a GameEntry at its `[GAME_SEED, game_program]` PDA."
+          ],
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "defined": {
+              "name": "GameStatus"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "transfer_game_owner",
+      "docs": [
+        "Current owner + new owner both sign."
+      ],
+      "discriminator": [
+        233,
+        62,
+        248,
+        185,
+        177,
+        45,
+        169,
+        190
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "new_owner",
+          "signer": true
+        },
+        {
+          "name": "game_entry",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_default_ad",
+      "docs": [
+        "Moderator | Admin."
+      ],
+      "discriminator": [
+        234,
+        125,
+        175,
+        127,
+        43,
+        237,
+        21,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "signer": true
+        },
+        {
+          "name": "auth_role"
+        },
+        {
+          "name": "default_ad",
+          "docs": [
+            "Owner + discriminator suffice: platform-core only creates DefaultAd at its PDA."
+          ],
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "auth_role_kind",
+          "type": {
+            "defined": {
+              "name": "Role"
+            }
+          }
+        },
+        {
+          "name": "creative",
+          "type": {
+            "defined": {
+              "name": "AdCreative"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "withdraw_sol",
+      "docs": [
+        "Admin only. Keeps Treasury rent-exempt."
+      ],
+      "discriminator": [
+        145,
+        131,
+        74,
+        136,
+        65,
+        137,
+        42,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "admin_role"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "to",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_token",
+      "docs": [
+        "Admin only. From the Treasury ATA of `mint`."
+      ],
+      "discriminator": [
+        136,
+        235,
+        181,
+        5,
+        101,
+        109,
+        57,
+        81
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "admin_role"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "treasury_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "account",
+                "path": "token_program"
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "to",
+          "docs": [
+            "Any token account of this mint chosen by the Admin."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AllowedMint",
+      "discriminator": [
+        173,
+        229,
+        179,
+        46,
+        121,
+        164,
+        247,
+        6
+      ]
+    },
+    {
+      "name": "DefaultAd",
+      "discriminator": [
+        177,
+        107,
+        27,
+        171,
+        160,
+        136,
+        208,
+        57
+      ]
+    },
+    {
+      "name": "GameEntry",
+      "discriminator": [
+        119,
+        212,
+        18,
+        192,
+        14,
+        188,
+        27,
+        149
+      ]
+    },
+    {
+      "name": "PlatformConfig",
+      "discriminator": [
+        160,
+        78,
+        128,
+        0,
+        248,
+        83,
+        230,
+        160
+      ]
+    },
+    {
+      "name": "RoleMember",
+      "discriminator": [
+        33,
+        119,
+        164,
+        224,
+        146,
+        251,
+        202,
+        109
+      ]
+    },
+    {
+      "name": "Treasury",
+      "discriminator": [
+        238,
+        239,
+        123,
+        238,
+        89,
+        1,
+        168,
+        253
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "DefaultAdSet",
+      "discriminator": [
+        54,
+        35,
+        241,
+        214,
+        158,
+        244,
+        65,
+        49
+      ]
+    },
+    {
+      "name": "FeeChanged",
+      "discriminator": [
+        103,
+        252,
+        132,
+        250,
+        1,
+        49,
+        116,
+        145
+      ]
+    },
+    {
+      "name": "GameOwnerChanged",
+      "discriminator": [
+        200,
+        233,
+        79,
+        24,
+        192,
+        198,
+        73,
+        252
+      ]
+    },
+    {
+      "name": "GameRegistered",
+      "discriminator": [
+        2,
+        83,
+        36,
+        122,
+        249,
+        190,
+        106,
+        31
+      ]
+    },
+    {
+      "name": "GameStatusChanged",
+      "discriminator": [
+        23,
+        200,
+        48,
+        30,
+        24,
+        109,
+        55,
+        124
+      ]
+    },
+    {
+      "name": "Initialized",
+      "discriminator": [
+        208,
+        213,
+        115,
+        98,
+        115,
+        82,
+        201,
+        209
+      ]
+    },
+    {
+      "name": "MintAllowed",
+      "discriminator": [
+        80,
+        212,
+        130,
+        120,
+        125,
+        216,
+        111,
+        240
+      ]
+    },
+    {
+      "name": "MintDisallowed",
+      "discriminator": [
+        197,
+        121,
+        232,
+        50,
+        39,
+        80,
+        141,
+        148
+      ]
+    },
+    {
+      "name": "RoleGranted",
+      "discriminator": [
+        220,
+        183,
+        89,
+        228,
+        143,
+        63,
+        246,
+        58
+      ]
+    },
+    {
+      "name": "RoleRevoked",
+      "discriminator": [
+        167,
+        183,
+        52,
+        229,
+        126,
+        206,
+        62,
+        61
+      ]
+    },
+    {
+      "name": "TreasuryWithdrawn",
+      "discriminator": [
+        143,
+        181,
+        157,
+        169,
+        87,
+        155,
+        170,
+        46
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Signer does not hold the required role"
+    },
+    {
+      "code": 6001,
+      "name": "FeeTooHigh",
+      "msg": "Fee exceeds MAX_FEE_BPS"
+    },
+    {
+      "code": 6002,
+      "name": "LastAdmin",
+      "msg": "Cannot remove the last Admin"
+    },
+    {
+      "code": 6003,
+      "name": "GameProgramNotExecutable",
+      "msg": "Game program account is not executable"
+    },
+    {
+      "code": 6004,
+      "name": "InsufficientTreasury",
+      "msg": "Withdrawal would leave Treasury below rent-exempt minimum"
+    },
+    {
+      "code": 6005,
+      "name": "UnsupportedMintExtension",
+      "msg": "Mint has a Token-2022 extension that is not allowed"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidAdSize",
+      "msg": "Ad width and height must be greater than zero"
+    },
+    {
+      "code": 6007,
+      "name": "CreativeFieldTooLong",
+      "msg": "Ad creative field exceeds its max length"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidClickUrl",
+      "msg": "Ad click_url must start with https://"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidImageHash",
+      "msg": "Ad image_sha256 must not be all zeros"
+    },
+    {
+      "code": 6010,
+      "name": "MathOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidMember",
+      "msg": "Role member must not be the default (all-zero) pubkey"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidGameProgram",
+      "msg": "Game program must be an upgradeable BPF program other than platform-core"
+    }
+  ],
+  "types": [
+    {
+      "name": "AdCreative",
+      "docs": [
+        "Image + text + click URL. ⚠️ Must match `ad-pool::AdCreative` field-for-field,",
+        "including every `max_len` (bytes, not characters) — FE renders both the same way."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "image_url",
+            "docs": [
+              "Object URL in R2 (key `ads/<sha256>.<ext>` — Q3)."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "image_sha256",
+            "docs": [
+              "FE must check the fetched image hashes to this before showing it."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "text",
+            "docs": [
+              "Fallback shown instead of the image (A13). Thai ≈ 40 characters."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "click_url",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AllowedMint",
+      "docs": [
+        "PDA `[BOOST_MINT_SEED, mint]`. Existing = mint may be boosted (rev 3 #3 · Q4).",
+        "Covers SPL Token and Token-2022 — `token_program` says which.",
+        "Layout: specs/designs/01 §5 (147 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "mint",
+            "docs": [
+              "offset 10"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "docs": [
+              "offset 42 — Token or Token-2022; consumers derive the Treasury ATA with it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "decimals",
+            "docs": [
+              "offset 74 — snapshot for `transfer_checked`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "added_by",
+            "docs": [
+              "offset 75 — receives this account's rent back on `disallow_mint`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "added_at",
+            "docs": [
+              "offset 107"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "offset 115"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DefaultAd",
+      "docs": [
+        "PDA `[DEFAULT_AD_SEED, width.to_le_bytes(), height.to_le_bytes()]` — one per size.",
+        "Layout: specs/designs/01 §7 (651 bytes reserved).",
+        "",
+        "⚠️ `creative` is variable-length, so everything after offset 55 (including",
+        "`_reserved`) has no fixed offset. Never memcmp past 55; extend via `AdCreative`",
+        "(coordinated with ad-pool) or a new account type (review R3)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "width",
+            "docs": [
+              "offset 10 — duplicates the seed."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "docs": [
+              "offset 12 — duplicates the seed."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "enabled",
+            "docs": [
+              "offset 14 — false = FE shows nothing (account is kept, not closed)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "updated_by",
+            "docs": [
+              "offset 15"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "offset 47"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "creative",
+            "docs": [
+              "offset 55 — variable length (max 564)."
+            ],
+            "type": {
+              "defined": {
+                "name": "AdCreative"
+              }
+            }
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "variable offset"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DefaultAdSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "width",
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "type": "u16"
+          },
+          {
+            "name": "enabled",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "kind",
+            "type": {
+              "defined": {
+                "name": "FeeKind"
+              }
+            }
+          },
+          {
+            "name": "old_bps",
+            "type": "u16"
+          },
+          {
+            "name": "new_bps",
+            "type": "u16"
+          },
+          {
+            "name": "by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FeeKind",
+      "docs": [
+        "Which fee `set_fee` updates (X7).",
+        "⚠️ INVARIANT: every explicit value MUST equal its variant index. The IDL carries no",
+        "discriminant values, so `declare_program!` consumers encode the *index*; a gap or",
+        "out-of-order value would silently desync them. Append only, next value = next index",
+        "(guarded by `enum_bytes_frozen_v1` + `enum_byte_equals_declaration_index` and the",
+        "compile-time `enum_tripwire` in tests/test_layout.rs)."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Boost"
+          },
+          {
+            "name": "Ad"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameEntry",
+      "docs": [
+        "PDA `[GAME_SEED, game_program]`. Never closed (I4) — only `Suspended`.",
+        "Layout: specs/designs/01 §4 (220 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "offset 10 — ⚠️ relayer memcmp: 0x00 = Active. Never move."
+            ],
+            "type": {
+              "defined": {
+                "name": "GameStatus"
+              }
+            }
+          },
+          {
+            "name": "game_program",
+            "docs": [
+              "offset 11 — relayer reads this with dataSlice(11, 32)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "offset 43 — the single source of \"game owner\" in the hub (rev 3 #6)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "game_authority",
+            "docs": [
+              "offset 75 — `find_program_address([GAME_AUTHORITY_SEED], game_program)` (X5)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "game_authority_bump",
+            "docs": [
+              "offset 107"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "registered_by",
+            "docs": [
+              "offset 108"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "registered_at",
+            "docs": [
+              "offset 140"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "offset 148 — last status / owner change."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "offset 156"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameOwnerChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "old",
+            "type": "pubkey"
+          },
+          {
+            "name": "new",
+            "type": "pubkey"
+          },
+          {
+            "name": "forced",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "game_authority",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameStatus",
+      "docs": [
+        "⚠️ Never reorder — the relayer filters `GameEntry` with memcmp(offset 10, 0x00 = Active).",
+        "⚠️ INVARIANT: every explicit value MUST equal its variant index. The IDL carries no",
+        "discriminant values, so `declare_program!` consumers encode the *index*; a gap or",
+        "out-of-order value would silently desync them. Append only, next value = next index",
+        "(guarded by `enum_bytes_frozen_v1` + `enum_byte_equals_declaration_index` and the",
+        "compile-time `enum_tripwire` in tests/test_layout.rs)."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Suspended"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameStatusChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "old",
+            "type": {
+              "defined": {
+                "name": "GameStatus"
+              }
+            }
+          },
+          {
+            "name": "new",
+            "type": {
+              "defined": {
+                "name": "GameStatus"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Initialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "first_admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "boost_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "ad_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintAllowed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintDisallowed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlatformConfig",
+      "docs": [
+        "PDA `[CONFIG_SEED]` — single instance. Layout: specs/designs/01 §2 (97 bytes).",
+        "",
+        "No `max_fee_bps` (X1 — ceiling is `MAX_FEE_BPS` in code), no `treasury`",
+        "(X2 — derive from `TREASURY_SEED`), no `moderator` (rev 3 #5 — RBAC role)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "boost_fee_bps",
+            "docs": [
+              "offset 10 — rewards-pool snapshots this at `open_pool`. ≤ MAX_FEE_BPS."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "ad_fee_bps",
+            "docs": [
+              "offset 12 — ad-pool snapshots this at the first bid of a slot. ≤ MAX_FEE_BPS."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "admin_count",
+            "docs": [
+              "offset 14 — number of live `RoleMember(Admin, *)`; never reaches 0."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "treasury_bump",
+            "docs": [
+              "offset 16 — consumers use `bump = config.treasury_bump`."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "initialized_at",
+            "docs": [
+              "offset 17"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "offset 25 — last time either fee changed."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "offset 33"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Role",
+      "docs": [
+        "⚠️ Never reorder — `role as u8` is a PDA seed.",
+        "⚠️ INVARIANT: every explicit value MUST equal its variant index. The IDL carries no",
+        "discriminant values, so `declare_program!` consumers encode the *index*; a gap or",
+        "out-of-order value would silently desync them. Append only, next value = next index",
+        "(guarded by `enum_bytes_frozen_v1` + `enum_byte_equals_declaration_index` and the",
+        "compile-time `enum_tripwire` in tests/test_layout.rs)."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Admin"
+          },
+          {
+            "name": "GameRegistrar"
+          },
+          {
+            "name": "Moderator"
+          },
+          {
+            "name": "FeeManager"
+          },
+          {
+            "name": "AllowlistManager"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RoleGranted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "role",
+            "type": {
+              "defined": {
+                "name": "Role"
+              }
+            }
+          },
+          {
+            "name": "member",
+            "type": "pubkey"
+          },
+          {
+            "name": "by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RoleMember",
+      "docs": [
+        "PDA `[ROLE_SEED, &[role as u8], member]`. Existing = has role; closed = revoked.",
+        "EVM analogue: OZ `AccessControl` `mapping(bytes32 => mapping(address => bool))`.",
+        "Layout: specs/designs/01 §3 (115 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "role",
+            "docs": [
+              "offset 10 — duplicates the seed so readers don't need it."
+            ],
+            "type": {
+              "defined": {
+                "name": "Role"
+              }
+            }
+          },
+          {
+            "name": "member",
+            "docs": [
+              "offset 11 — duplicates the seed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "granted_by",
+            "docs": [
+              "offset 43 — receives the rent back on revoke / renounce (D11)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "granted_at",
+            "docs": [
+              "offset 75"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "offset 83"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RoleRevoked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "role",
+            "type": {
+              "defined": {
+                "name": "Role"
+              }
+            }
+          },
+          {
+            "name": "member",
+            "type": "pubkey"
+          },
+          {
+            "name": "by",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Treasury",
+      "docs": [
+        "PDA `[TREASURY_SEED]` — program-owned, single instance. Holds platform SOL fees",
+        "directly; SPL fees live in its ATAs. Debited only by `withdraw_*` (I5).",
+        "Layout: specs/designs/01 §6 (42 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "offset 10"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "docs": [
+              "`None` = SOL."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "to",
+            "type": "pubkey"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "ACCOUNT_VERSION",
+      "docs": [
+        "Layout version written into byte 8 of every account at `init`."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "AD_CLICK_URL_MAX_LEN",
+      "type": "u16",
+      "value": "200"
+    },
+    {
+      "name": "AD_IMAGE_URL_MAX_LEN",
+      "docs": [
+        "`AdCreative` string limits in bytes — must match `ad-pool::AdCreative` (01 §7)."
+      ],
+      "type": "u16",
+      "value": "200"
+    },
+    {
+      "name": "AD_TEXT_MAX_LEN",
+      "type": "u16",
+      "value": "120"
+    },
+    {
+      "name": "BOOST_MINT_SEED",
+      "docs": [
+        "`[BOOST_MINT_SEED, mint]`"
+      ],
+      "type": "bytes",
+      "value": "[98, 111, 111, 115, 116, 95, 109, 105, 110, 116]"
+    },
+    {
+      "name": "BPS_DENOMINATOR",
+      "type": "u16",
+      "value": "10000"
+    },
+    {
+      "name": "CONFIG_SEED",
+      "type": "bytes",
+      "value": "[99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "DEFAULT_AD_SEED",
+      "docs": [
+        "`[DEFAULT_AD_SEED, width.to_le_bytes(), height.to_le_bytes()]`"
+      ],
+      "type": "bytes",
+      "value": "[100, 101, 102, 97, 117, 108, 116, 95, 97, 100]"
+    },
+    {
+      "name": "GAME_AUTHORITY_SEED",
+      "docs": [
+        "Seed of the PDA signer inside each *game* program (pattern R1), not of platform-core."
+      ],
+      "type": "bytes",
+      "value": "[103, 97, 109, 101, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
+    },
+    {
+      "name": "GAME_SEED",
+      "docs": [
+        "`[GAME_SEED, game_program]`"
+      ],
+      "type": "bytes",
+      "value": "[103, 97, 109, 101]"
+    },
+    {
+      "name": "MAX_FEE_BPS",
+      "docs": [
+        "Fee ceiling enforced in code (C2 · X1) — 2000 bps = 20%."
+      ],
+      "type": "u16",
+      "value": "2000"
+    },
+    {
+      "name": "ROLE_SEED",
+      "docs": [
+        "`[ROLE_SEED, &[role as u8], member]`"
+      ],
+      "type": "bytes",
+      "value": "[114, 111, 108, 101]"
+    },
+    {
+      "name": "TREASURY_SEED",
+      "type": "bytes",
+      "value": "[116, 114, 101, 97, 115, 117, 114, 121]"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+[package]
+name = "ad_pool"
+version = "0.1.0"
+description = "ad-pool — per-game ad slot auctions (SOL, per epoch) with moderated creatives for blockchain-games-hub"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "ad_pool"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+# SOL only (A6) — no anchor-spl.
+anchor-lang = "1.2.1"
+
+[dev-dependencies]
+# LiteSVM 0.17 = agave 4.3 runtime — matches cargo-build-sbf 4.3.0 (SBPF v3).
+# 0.10 (agave 3.1) cannot load the .so (platform-core lesson).
+litesvm = "0.17.0"
+sha2 = "0.11.0"
+# Golden test reads idls/platform_core.json to check shared constants.
+serde_json = "1.0.151"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
