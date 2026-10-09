@@ -9,13 +9,13 @@
 | | |
 |---|---|
 | Specs | [`specs/init.md`](specs/init.md) (maintainer — ต้นฉบับ) · [`specs/spec-v1.md`](specs/spec-v1.md) (ภาพรวม) |
-| **Design** | [`specs/designs/01-program-design-v1.md`](specs/designs/01-program-design-v1.md) — accounts, state machine, instructions (ผ่าน review · รอ maintainer ตัดสิน §11) |
+| **Design** | [`specs/designs/01-program-design-v1.md`](specs/designs/01-program-design-v1.md) — accounts, state machine, instructions (ผ่าน review · อนุมัติ 2026-10-09) |
 | Research | [`specs/research/`](specs/research/) — A9 moderation · A14 URL reputation |
 | Decisions | [`../DECISIONS.md`](../DECISIONS.md) (A1–A14, D3–D5, D11 · rev 8) |
 | Integration | platform-core [`03-consumer-integration-v1.md`](../platform-core/specs/designs/03-consumer-integration-v1.md) · relayer `solana-poc/relayer/skills/gasless-relayer-integration/SKILL.md` |
 | Owner | `maintainer` (`<internal>`) |
 
-สถานะ: design v1 ผ่าน review (รอ maintainer ตัดสิน Q1–Q12) — ยังไม่มี code · devnet เท่านั้น
+สถานะ: design v1 **อนุมัติแล้ว** (maintainer 2026-10-09 · External Wallet เท่านั้น) — ยังไม่มี code · devnet เท่านั้น
 
 เวลา spec ขัดกัน ยึดตามลำดับนี้: `DECISIONS.md` → `designs/01-program-design-v1.md` → `spec-v1.md` (⭐ rev 3) → `spec-v1.md` เนื้อหาเดิม
 
