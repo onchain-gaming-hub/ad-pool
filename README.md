@@ -10,6 +10,7 @@
 |---|---|
 | Specs | [`specs/init.md`](specs/init.md) (maintainer — ต้นฉบับ) · [`specs/spec-v1.md`](specs/spec-v1.md) (ภาพรวม) |
 | **Design** | [`specs/designs/01-program-design-v1.md`](specs/designs/01-program-design-v1.md) — accounts, state machine, instructions (ผ่าน review · อนุมัติ 2026-10-09) |
+| **Plan / tracking** | [`specs/designs/02-implementation-plan.md`](specs/designs/02-implementation-plan.md) — phase P0–P5 (program) · W0–W6 (Worker) · F1 (FE) |
 | Research | [`specs/research/`](specs/research/) — A9 moderation · A14 URL reputation |
 | Decisions | [`../DECISIONS.md`](../DECISIONS.md) (A1–A14, D3–D5, D11 · rev 8) |
 | Integration | platform-core [`03-consumer-integration-v1.md`](../platform-core/specs/designs/03-consumer-integration-v1.md) · relayer `solana-poc/relayer/skills/gasless-relayer-integration/SKILL.md` |
