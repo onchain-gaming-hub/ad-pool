@@ -525,3 +525,92 @@ pub fn auction_of(
 ) -> ad_pool::state::AdSlotAuction {
     fetch(svm, &ad_slot_pda(game_program, epoch, slot_index))
 }
+
+// ------------------------------------------------------ moderator builders
+
+/// A funded key holding platform-core's Moderator role.
+pub fn new_moderator(svm: &mut LiteSVM) -> Keypair {
+    let m = funded(svm);
+    put_role(svm, Role::Moderator, &m.pubkey());
+    m
+}
+
+pub fn moderate_metas(
+    moderator: &Pubkey,
+    role: &Pubkey,
+    auction: &Pubkey,
+) -> Vec<anchor_lang::prelude::AccountMeta> {
+    ad_pool::accounts::Moderate {
+        moderator: *moderator,
+        moderator_role: *role,
+        auction: *auction,
+    }
+    .to_account_metas(None)
+}
+
+pub fn ix_approve_creative(
+    moderator: &Pubkey,
+    auction: &Pubkey,
+    creative: ad_pool::state::AdCreative,
+    image_reject_flags: u32,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::ApproveCreative {
+            creative,
+            image_reject_flags,
+        }
+        .data(),
+        moderate_metas(moderator, &role_pda(Role::Moderator, moderator).0, auction),
+    )
+}
+
+pub fn ix_approve_image(
+    moderator: &Pubkey,
+    auction: &Pubkey,
+    image_url: String,
+    image_sha256: [u8; 32],
+) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::ApproveImage {
+            image_url,
+            image_sha256,
+        }
+        .data(),
+        moderate_metas(moderator, &role_pda(Role::Moderator, moderator).0, auction),
+    )
+}
+
+pub fn ix_reject_creative(moderator: &Pubkey, auction: &Pubkey, flags: u32) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::RejectCreative { flags }.data(),
+        moderate_metas(moderator, &role_pda(Role::Moderator, moderator).0, auction),
+    )
+}
+
+pub fn ix_revoke_creative(moderator: &Pubkey, auction: &Pubkey, flags: u32) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::RevokeCreative { flags }.data(),
+        moderate_metas(moderator, &role_pda(Role::Moderator, moderator).0, auction),
+    )
+}
+
+pub fn full_creative() -> ad_pool::state::AdCreative {
+    ad_pool::state::AdCreative {
+        image_url: "https://ads.example.r2.dev/ads/ab.png".into(),
+        image_sha256: [0xAB; 32],
+        text: "โฆษณาทดสอบ".into(),
+        click_url: "https://example.com/promo".into(),
+    }
+}
+
+pub fn text_only_creative() -> ad_pool::state::AdCreative {
+    ad_pool::state::AdCreative {
+        image_url: String::new(),
+        image_sha256: [0; 32],
+        ..full_creative()
+    }
+}

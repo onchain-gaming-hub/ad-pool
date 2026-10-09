@@ -2,7 +2,7 @@
 //! with creatives written on chain by a Moderator-role Worker after off-chain checks.
 //! Design: specs/designs/01-program-design-v1.md · Plan: specs/designs/02-implementation-plan.md
 //!
-//! Phases: P0 layouts · P1 config instructions · P2 open_auction + bid.
+//! Phases: P0 layouts · P1 config · P2 open_auction + bid · P3 moderator instructions.
 
 pub mod constants;
 pub mod error;
@@ -101,5 +101,33 @@ pub mod ad_pool {
     /// `amount` is the new total.
     pub fn bid(ctx: Context<Bid>, amount: u64) -> Result<()> {
         instructions::auction::handle_bid(ctx, amount)
+    }
+
+    /// Moderator (Worker). First approval: full → Approved, text-only → TextOnly (A13).
+    pub fn approve_creative(
+        ctx: Context<Moderate>,
+        creative: AdCreative,
+        image_reject_flags: u32,
+    ) -> Result<()> {
+        instructions::moderation::handle_approve_creative(ctx, creative, image_reject_flags)
+    }
+
+    /// Moderator. Adds the image to a TextOnly creative → Approved.
+    pub fn approve_image(
+        ctx: Context<Moderate>,
+        image_url: String,
+        image_sha256: [u8; 32],
+    ) -> Result<()> {
+        instructions::moderation::handle_approve_image(ctx, image_url, image_sha256)
+    }
+
+    /// Moderator. Records a rejected submission; status unchanged (A8).
+    pub fn reject_creative(ctx: Context<Moderate>, flags: u32) -> Result<()> {
+        instructions::moderation::handle_reject_creative(ctx, flags)
+    }
+
+    /// Moderator. Takes an approved / text-only creative down → Empty (Q9).
+    pub fn revoke_creative(ctx: Context<Moderate>, flags: u32) -> Result<()> {
+        instructions::moderation::handle_revoke_creative(ctx, flags)
     }
 }

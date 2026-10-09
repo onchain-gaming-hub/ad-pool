@@ -54,7 +54,7 @@ pub enum AdPoolError {
     InvalidCreativeShape,
     #[msg("Creative field too long (bytes)")]
     CreativeFieldTooLong,
-    #[msg("click_url must start with https://")]
+    #[msg("click_url must be https:// + a non-empty rest, without whitespace/control bytes")]
     InvalidClickUrl,
     #[msg("image_sha256 must not be all zeros")]
     InvalidImageHash,
