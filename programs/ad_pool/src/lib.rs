@@ -2,7 +2,7 @@
 //! with creatives written on chain by a Moderator-role Worker after off-chain checks.
 //! Design: specs/designs/01-program-design-v1.md · Plan: specs/designs/02-implementation-plan.md
 //!
-//! Phases: P0 layouts · P1 config instructions.
+//! Phases: P0 layouts · P1 config instructions · P2 open_auction + bid.
 
 pub mod constants;
 pub mod error;
@@ -84,5 +84,22 @@ pub mod ad_pool {
         active: bool,
     ) -> Result<()> {
         instructions::config::handle_set_slot_active(ctx, slot_index, active)
+    }
+
+    /// First bid of (game, epoch, slot): creates the escrow, bidder pays its rent.
+    pub fn open_auction(
+        ctx: Context<OpenAuction>,
+        game_program: Pubkey,
+        epoch: u64,
+        slot_index: u8,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::auction::handle_open_auction(ctx, game_program, epoch, slot_index, amount)
+    }
+
+    /// Outbid (refunds the previous leader in the same tx) or raise your own bid.
+    /// `amount` is the new total.
+    pub fn bid(ctx: Context<Bid>, amount: u64) -> Result<()> {
+        instructions::auction::handle_bid(ctx, amount)
     }
 }

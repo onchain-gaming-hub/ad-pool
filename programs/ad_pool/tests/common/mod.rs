@@ -43,6 +43,7 @@ pub fn setup() -> LiteSVM {
     svm.add_program(ad_pool::id(), &program_so("ad_pool"))
         .unwrap();
     set_time(&mut svm, T0);
+    put_pc_config(&mut svm, 100); // ad fee 1% (rev 7)
     svm
 }
 
@@ -439,4 +440,88 @@ pub fn new_configured_game(svm: &mut LiteSVM) -> (Game, ConfigArgs) {
         &[&g.owner],
     ));
     (g, a)
+}
+
+// ------------------------------------------------------- auction builders
+
+/// Epochs biddable at `now = T0` with the default config: start ∈ (T0 + 7 d, T0 + 30 d].
+pub const FIRST_OPEN_EPOCH: u64 = 8;
+pub const LAST_OPEN_EPOCH: u64 = 30;
+
+pub fn ix_open_auction(
+    bidder: &Pubkey,
+    game_program: &Pubkey,
+    epoch: u64,
+    slot_index: u8,
+    amount: u64,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::OpenAuction {
+            game_program: *game_program,
+            epoch,
+            slot_index,
+            amount,
+        }
+        .data(),
+        ad_pool::accounts::OpenAuction {
+            bidder: *bidder,
+            game_entry: game_entry_pda(game_program).0,
+            config: pc_config_pda().0,
+            ad_config: ad_config_pda(game_program),
+            auction: ad_slot_pda(game_program, epoch, slot_index),
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn ix_bid_with(
+    bidder: &Pubkey,
+    auction: &Pubkey,
+    game_entry: &Pubkey,
+    prev_bidder: &Pubkey,
+    amount: u64,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::Bid { amount }.data(),
+        ad_pool::accounts::Bid {
+            bidder: *bidder,
+            auction: *auction,
+            game_entry: *game_entry,
+            prev_bidder: *prev_bidder,
+            system_program: system_program::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+/// `bid` against the leader currently stored on chain.
+pub fn ix_bid(
+    svm: &LiteSVM,
+    bidder: &Pubkey,
+    game_program: &Pubkey,
+    epoch: u64,
+    slot_index: u8,
+    amount: u64,
+) -> Instruction {
+    let auction = ad_slot_pda(game_program, epoch, slot_index);
+    let leader = fetch::<ad_pool::state::AdSlotAuction>(svm, &auction).highest_bidder;
+    ix_bid_with(
+        bidder,
+        &auction,
+        &game_entry_pda(game_program).0,
+        &leader,
+        amount,
+    )
+}
+
+pub fn auction_of(
+    svm: &LiteSVM,
+    game_program: &Pubkey,
+    epoch: u64,
+    slot_index: u8,
+) -> ad_pool::state::AdSlotAuction {
+    fetch(svm, &ad_slot_pda(game_program, epoch, slot_index))
 }
