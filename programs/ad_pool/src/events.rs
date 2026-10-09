@@ -105,6 +105,9 @@ pub struct Settled {
     pub game_program: Pubkey,
     pub epoch: u64,
     pub slot_index: u8,
+    /// Winner and winning amount — kept in the event because the account is closed later.
+    pub winner: Pubkey,
+    pub amount: u64,
     pub fee: u64,
     pub net: u64,
     pub game_owner: Pubkey,

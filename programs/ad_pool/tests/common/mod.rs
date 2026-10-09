@@ -11,7 +11,7 @@ use {
         instructions::AdSlotSpecInput,
         platform_core::{
             self,
-            accounts::{GameEntry, PlatformConfig, RoleMember},
+            accounts::{GameEntry, PlatformConfig, RoleMember, Treasury},
             types::{GameStatus, Role},
         },
     },
@@ -44,6 +44,7 @@ pub fn setup() -> LiteSVM {
         .unwrap();
     set_time(&mut svm, T0);
     put_pc_config(&mut svm, 100); // ad fee 1% (rev 7)
+    put_treasury(&mut svm);
     svm
 }
 
@@ -612,5 +613,72 @@ pub fn text_only_creative() -> ad_pool::state::AdCreative {
         image_url: String::new(),
         image_sha256: [0; 32],
         ..full_creative()
+    }
+}
+
+// --------------------------------------------------- settlement builders
+
+pub fn treasury_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[PC_TREASURY_SEED], &platform_core::ID)
+}
+
+pub fn put_treasury(svm: &mut LiteSVM) {
+    let (address, bump) = treasury_pda();
+    let t = Treasury {
+        version: 1,
+        bump,
+        _reserved: [0; 32],
+    };
+    put_pc_account(svm, address, &t);
+}
+
+pub fn ix_settle_with(
+    auction: &Pubkey,
+    game_entry: &Pubkey,
+    game_owner: &Pubkey,
+    treasury: &Pubkey,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::Settle {}.data(),
+        ad_pool::accounts::Settle {
+            auction: *auction,
+            game_entry: *game_entry,
+            game_owner: *game_owner,
+            config: pc_config_pda().0,
+            treasury: *treasury,
+        }
+        .to_account_metas(None),
+    )
+}
+
+/// `settle` with the accounts read from chain (GameEntry.owner at call time).
+pub fn ix_settle(svm: &LiteSVM, game_program: &Pubkey, epoch: u64, slot_index: u8) -> Instruction {
+    let (entry, _) = game_entry_pda(game_program);
+    let owner = fetch::<GameEntry>(svm, &entry).owner;
+    ix_settle_with(
+        &ad_slot_pda(game_program, epoch, slot_index),
+        &entry,
+        &owner,
+        &treasury_pda().0,
+    )
+}
+
+pub fn ix_close_auction(auction: &Pubkey, rent_payer: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        ad_pool::id(),
+        &ad_pool::instruction::CloseAuction {}.data(),
+        ad_pool::accounts::CloseAuction {
+            auction: *auction,
+            rent_payer: *rent_payer,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn cu(res: &TransactionResult) -> u64 {
+    match res {
+        Ok(m) => m.compute_units_consumed,
+        Err(e) => e.meta.compute_units_consumed,
     }
 }

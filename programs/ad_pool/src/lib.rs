@@ -2,7 +2,7 @@
 //! with creatives written on chain by a Moderator-role Worker after off-chain checks.
 //! Design: specs/designs/01-program-design-v1.md · Plan: specs/designs/02-implementation-plan.md
 //!
-//! Phases: P0 layouts · P1 config · P2 open_auction + bid · P3 moderator instructions.
+//! Phases: P0 layouts · P1 config · P2 open_auction + bid · P3 moderation · P4 settle + close.
 
 pub mod constants;
 pub mod error;
@@ -129,5 +129,15 @@ pub mod ad_pool {
     /// Moderator. Takes an approved / text-only creative down → Empty (Q9).
     pub fn revoke_creative(ctx: Context<Moderate>, flags: u32) -> Result<()> {
         instructions::moderation::handle_revoke_creative(ctx, flags)
+    }
+
+    /// Anyone, after epoch start: fee → Treasury, rest → GameEntry.owner. No refund (D4).
+    pub fn settle(ctx: Context<Settle>) -> Result<()> {
+        instructions::settlement::handle_settle(ctx)
+    }
+
+    /// Anyone, after epoch end + settle: closes the auction, everything left → rent_payer.
+    pub fn close_auction(ctx: Context<CloseAuction>) -> Result<()> {
+        instructions::settlement::handle_close_auction(ctx)
     }
 }

@@ -1,0 +1,2820 @@
+{
+  "address": "6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk",
+  "metadata": {
+    "name": "ad_pool",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "ad-pool — per-game ad slot auctions (SOL, per epoch) with moderated creatives for blockchain-games-hub"
+  },
+  "instructions": [
+    {
+      "name": "add_slot",
+      "docs": [
+        "GameEntry.owner. Append-only."
+      ],
+      "discriminator": [
+        149,
+        85,
+        92,
+        246,
+        13,
+        12,
+        100,
+        140
+      ],
+      "accounts": [
+        {
+          "name": "game_owner",
+          "signer": true
+        },
+        {
+          "name": "game_entry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ad_config.game_program",
+                "account": "GameAdConfig"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "ad_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ad_config.game_program",
+                "account": "GameAdConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "width",
+          "type": "u16"
+        },
+        {
+          "name": "height",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "approve_creative",
+      "docs": [
+        "Moderator (Worker). First approval: full → Approved, text-only → TextOnly (A13)."
+      ],
+      "discriminator": [
+        111,
+        12,
+        141,
+        173,
+        1,
+        3,
+        255,
+        94
+      ],
+      "accounts": [
+        {
+          "name": "moderator",
+          "docs": [
+            "Worker key holding the Moderator role; pays the tx fee."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "moderator_role"
+        },
+        {
+          "name": "auction",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "creative",
+          "type": {
+            "defined": {
+              "name": "AdCreative"
+            }
+          }
+        },
+        {
+          "name": "image_reject_flags",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "approve_image",
+      "docs": [
+        "Moderator. Adds the image to a TextOnly creative → Approved."
+      ],
+      "discriminator": [
+        114,
+        23,
+        242,
+        150,
+        209,
+        27,
+        43,
+        147
+      ],
+      "accounts": [
+        {
+          "name": "moderator",
+          "docs": [
+            "Worker key holding the Moderator role; pays the tx fee."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "moderator_role"
+        },
+        {
+          "name": "auction",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "image_url",
+          "type": "string"
+        },
+        {
+          "name": "image_sha256",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "bid",
+      "docs": [
+        "Outbid (refunds the previous leader in the same tx) or raise your own bid.",
+        "`amount` is the new total."
+      ],
+      "discriminator": [
+        199,
+        56,
+        85,
+        38,
+        146,
+        243,
+        37,
+        158
+      ],
+      "accounts": [
+        {
+          "name": "bidder",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "game_entry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.game_program",
+                "account": "AdSlotAuction"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "prev_bidder",
+          "docs": [
+            "The current leader — refunded here. On a self-raise this is the bidder itself.",
+            "A stale leader (someone outbid first) fails with the retryable `LeaderChanged`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "close_auction",
+      "docs": [
+        "Anyone, after epoch end + settle: closes the auction, everything left → rent_payer."
+      ],
+      "discriminator": [
+        225,
+        129,
+        91,
+        48,
+        215,
+        73,
+        203,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "rent_payer",
+          "docs": [
+            "Gets everything left in the escrow. Not a signer — funds can only go here, so",
+            "anyone may close."
+          ],
+          "writable": true,
+          "relations": [
+            "auction"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_ad_config",
+      "docs": [
+        "GameEntry.owner of an Active game. One config per game."
+      ],
+      "discriminator": [
+        235,
+        34,
+        96,
+        161,
+        85,
+        119,
+        150,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "game_owner",
+          "docs": [
+            "`GameEntry.owner` — pays the rent of the config (D11)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_entry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_program"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "ad_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "game_program",
+          "type": "pubkey"
+        },
+        {
+          "name": "genesis_ts",
+          "type": "i64"
+        },
+        {
+          "name": "epoch_duration_secs",
+          "type": "i64"
+        },
+        {
+          "name": "auction_close_lead_secs",
+          "type": "i64"
+        },
+        {
+          "name": "min_bid",
+          "type": "u64"
+        },
+        {
+          "name": "min_increment_bps",
+          "type": "u16"
+        },
+        {
+          "name": "bid_horizon_epochs",
+          "type": "u16"
+        },
+        {
+          "name": "slots",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "AdSlotSpecInput"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "open_auction",
+      "docs": [
+        "First bid of (game, epoch, slot): creates the escrow, bidder pays its rent."
+      ],
+      "discriminator": [
+        48,
+        60,
+        204,
+        12,
+        175,
+        130,
+        173,
+        33
+      ],
+      "accounts": [
+        {
+          "name": "bidder",
+          "docs": [
+            "Bids and pays the auction's rent (`rent_payer`)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "game_entry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_program"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "config",
+          "docs": [
+            "Source of the fee snapshot (rev 3 #7 · pc 03 §2.5)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "ad_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "game_program"
+              }
+            ]
+          }
+        },
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "game_program",
+          "type": "pubkey"
+        },
+        {
+          "name": "epoch",
+          "type": "u64"
+        },
+        {
+          "name": "slot_index",
+          "type": "u8"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "reject_creative",
+      "docs": [
+        "Moderator. Records a rejected submission; status unchanged (A8)."
+      ],
+      "discriminator": [
+        121,
+        206,
+        31,
+        210,
+        38,
+        54,
+        232,
+        60
+      ],
+      "accounts": [
+        {
+          "name": "moderator",
+          "docs": [
+            "Worker key holding the Moderator role; pays the tx fee."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "moderator_role"
+        },
+        {
+          "name": "auction",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "flags",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "revoke_creative",
+      "docs": [
+        "Moderator. Takes an approved / text-only creative down → Empty (Q9)."
+      ],
+      "discriminator": [
+        84,
+        177,
+        210,
+        233,
+        240,
+        176,
+        2,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "moderator",
+          "docs": [
+            "Worker key holding the Moderator role; pays the tx fee."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "moderator_role"
+        },
+        {
+          "name": "auction",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "flags",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "set_slot_active",
+      "docs": [
+        "GameEntry.owner. `false` = no new auctions on this slot."
+      ],
+      "discriminator": [
+        80,
+        48,
+        94,
+        53,
+        224,
+        218,
+        80,
+        32
+      ],
+      "accounts": [
+        {
+          "name": "game_owner",
+          "signer": true
+        },
+        {
+          "name": "game_entry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ad_config.game_program",
+                "account": "GameAdConfig"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "ad_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ad_config.game_program",
+                "account": "GameAdConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        },
+        {
+          "name": "active",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "settle",
+      "docs": [
+        "Anyone, after epoch start: fee → Treasury, rest → GameEntry.owner. No refund (D4)."
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "game_entry",
+          "docs": [
+            "Seeds come from the auction — never from an argument — so the GameEntry (and its",
+            "owner, the payee) of another game cannot be substituted. Status is NOT checked."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.game_program",
+                "account": "AdSlotAuction"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "game_owner",
+          "docs": [
+            "Revenue recipient = `GameEntry.owner` at settle time. UncheckedAccount (Q12): a",
+            "non-system-owned owner (multisig PDA…) must not make settle — and rent — stuck."
+          ],
+          "writable": true
+        },
+        {
+          "name": "config",
+          "docs": [
+            "Needed only for `treasury_bump`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "platform-core Treasury PDA — must be pinned (pc 03 §2.6), else anyone could",
+            "redirect the fee."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_ad_config",
+      "docs": [
+        "GameEntry.owner. `None` keeps the current value; genesis/duration are immutable."
+      ],
+      "discriminator": [
+        30,
+        19,
+        149,
+        186,
+        185,
+        166,
+        148,
+        51
+      ],
+      "accounts": [
+        {
+          "name": "game_owner",
+          "signer": true
+        },
+        {
+          "name": "game_entry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  97,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ad_config.game_program",
+                "account": "GameAdConfig"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                138,
+                71,
+                96,
+                15,
+                0,
+                196,
+                171,
+                4,
+                206,
+                249,
+                75,
+                87,
+                204,
+                40,
+                40,
+                12,
+                86,
+                124,
+                28,
+                171,
+                34,
+                62,
+                167,
+                237,
+                189,
+                27,
+                220,
+                238,
+                14,
+                10,
+                70,
+                5
+              ]
+            }
+          }
+        },
+        {
+          "name": "ad_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  100,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ad_config.game_program",
+                "account": "GameAdConfig"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "auction_close_lead_secs",
+          "type": {
+            "option": "i64"
+          }
+        },
+        {
+          "name": "min_bid",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "min_increment_bps",
+          "type": {
+            "option": "u16"
+          }
+        },
+        {
+          "name": "bid_horizon_epochs",
+          "type": {
+            "option": "u16"
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AdSlotAuction",
+      "discriminator": [
+        117,
+        216,
+        205,
+        60,
+        49,
+        223,
+        196,
+        18
+      ]
+    },
+    {
+      "name": "GameAdConfig",
+      "discriminator": [
+        51,
+        240,
+        253,
+        196,
+        44,
+        0,
+        169,
+        214
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AdConfigInitialized",
+      "discriminator": [
+        29,
+        187,
+        195,
+        58,
+        21,
+        38,
+        220,
+        18
+      ]
+    },
+    {
+      "name": "AdConfigUpdated",
+      "discriminator": [
+        117,
+        203,
+        184,
+        155,
+        144,
+        135,
+        222,
+        95
+      ]
+    },
+    {
+      "name": "AuctionClosed",
+      "discriminator": [
+        104,
+        72,
+        168,
+        177,
+        241,
+        79,
+        231,
+        167
+      ]
+    },
+    {
+      "name": "AuctionOpened",
+      "discriminator": [
+        25,
+        230,
+        140,
+        215,
+        100,
+        193,
+        14,
+        70
+      ]
+    },
+    {
+      "name": "BidPlaced",
+      "discriminator": [
+        135,
+        53,
+        176,
+        83,
+        193,
+        69,
+        108,
+        61
+      ]
+    },
+    {
+      "name": "CreativeApproved",
+      "discriminator": [
+        100,
+        242,
+        248,
+        188,
+        115,
+        237,
+        13,
+        80
+      ]
+    },
+    {
+      "name": "CreativeRejected",
+      "discriminator": [
+        49,
+        17,
+        22,
+        243,
+        151,
+        99,
+        179,
+        39
+      ]
+    },
+    {
+      "name": "CreativeRevoked",
+      "discriminator": [
+        34,
+        7,
+        43,
+        175,
+        24,
+        161,
+        241,
+        51
+      ]
+    },
+    {
+      "name": "Settled",
+      "discriminator": [
+        232,
+        210,
+        40,
+        17,
+        142,
+        124,
+        145,
+        238
+      ]
+    },
+    {
+      "name": "SlotActiveSet",
+      "discriminator": [
+        180,
+        193,
+        115,
+        134,
+        145,
+        138,
+        99,
+        38
+      ]
+    },
+    {
+      "name": "SlotAdded",
+      "discriminator": [
+        94,
+        21,
+        119,
+        246,
+        53,
+        64,
+        180,
+        147
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "GameNotActive",
+      "msg": "Game is not Active in platform-core"
+    },
+    {
+      "code": 6001,
+      "name": "NotGameOwner",
+      "msg": "Signer / account is not GameEntry.owner"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidEpochDuration",
+      "msg": "epoch_duration_secs must be a positive multiple of 86,400 and <= MAX_EPOCH_DURATION_SECS"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidGenesis",
+      "msg": "genesis_ts must be a multiple of 86,400 (00:00 UTC)"
+    },
+    {
+      "code": 6004,
+      "name": "CloseLeadTooShort",
+      "msg": "auction_close_lead_secs must be >= 7 days"
+    },
+    {
+      "code": 6005,
+      "name": "HorizonTooShort",
+      "msg": "bid_horizon_epochs × epoch_duration_secs must be >= close lead + one epoch"
+    },
+    {
+      "code": 6006,
+      "name": "HorizonTooLong",
+      "msg": "bid_horizon_epochs × epoch_duration_secs exceeds MAX_HORIZON_SECS"
+    },
+    {
+      "code": 6007,
+      "name": "FeeTooHigh",
+      "msg": "platform-core ad_fee_bps exceeds MAX_FEE_BPS"
+    },
+    {
+      "code": 6008,
+      "name": "MinBidBelowFloor",
+      "msg": "min_bid is below the floor (rent of an AdSlotAuction)"
+    },
+    {
+      "code": 6009,
+      "name": "BidBelowFloor",
+      "msg": "Bid is below the floor (rent of an AdSlotAuction)"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidIncrement",
+      "msg": "min_increment_bps must be in 1..=10,000"
+    },
+    {
+      "code": 6011,
+      "name": "InvalidSlot",
+      "msg": "Invalid slot (index out of range or zero width/height)"
+    },
+    {
+      "code": 6012,
+      "name": "SlotInactive",
+      "msg": "Slot is not active"
+    },
+    {
+      "code": 6013,
+      "name": "TooManySlots",
+      "msg": "Too many slots (max 8)"
+    },
+    {
+      "code": 6014,
+      "name": "BiddingClosed",
+      "msg": "Bidding is closed for this auction"
+    },
+    {
+      "code": 6015,
+      "name": "BeyondHorizon",
+      "msg": "Epoch is beyond the bid horizon"
+    },
+    {
+      "code": 6016,
+      "name": "BidTooLow",
+      "msg": "Bid is below the minimum (min_bid or minimum increment)"
+    },
+    {
+      "code": 6017,
+      "name": "LeaderChanged",
+      "msg": "Leader changed — re-read the auction and rebuild the transaction"
+    },
+    {
+      "code": 6018,
+      "name": "NotInCreativeWindow",
+      "msg": "Not inside the creative window [close_ts, epoch_end_ts)"
+    },
+    {
+      "code": 6019,
+      "name": "CreativeAlreadyFinal",
+      "msg": "Creative is already final for this action"
+    },
+    {
+      "code": 6020,
+      "name": "NotTextOnly",
+      "msg": "Creative status is not TextOnly"
+    },
+    {
+      "code": 6021,
+      "name": "NothingToRevoke",
+      "msg": "Nothing to revoke"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidCreativeShape",
+      "msg": "Invalid creative shape"
+    },
+    {
+      "code": 6023,
+      "name": "CreativeFieldTooLong",
+      "msg": "Creative field too long (bytes)"
+    },
+    {
+      "code": 6024,
+      "name": "InvalidClickUrl",
+      "msg": "click_url must be https:// + a non-empty rest, without whitespace/control bytes"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidImageHash",
+      "msg": "image_sha256 must not be all zeros"
+    },
+    {
+      "code": 6026,
+      "name": "EpochNotStarted",
+      "msg": "Epoch has not started"
+    },
+    {
+      "code": 6027,
+      "name": "AlreadySettled",
+      "msg": "Already settled"
+    },
+    {
+      "code": 6028,
+      "name": "EpochNotEnded",
+      "msg": "Epoch has not ended"
+    },
+    {
+      "code": 6029,
+      "name": "NotSettled",
+      "msg": "Not settled yet"
+    },
+    {
+      "code": 6030,
+      "name": "RentPayerMismatch",
+      "msg": "rent_payer does not match the auction"
+    },
+    {
+      "code": 6031,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "AdConfigInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "game_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "genesis_ts",
+            "type": "i64"
+          },
+          {
+            "name": "epoch_duration_secs",
+            "type": "i64"
+          },
+          {
+            "name": "auction_close_lead_secs",
+            "type": "i64"
+          },
+          {
+            "name": "min_bid",
+            "type": "u64"
+          },
+          {
+            "name": "min_increment_bps",
+            "type": "u16"
+          },
+          {
+            "name": "bid_horizon_epochs",
+            "type": "u16"
+          },
+          {
+            "name": "slot_count",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdConfigUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "auction_close_lead_secs",
+            "type": "i64"
+          },
+          {
+            "name": "min_bid",
+            "type": "u64"
+          },
+          {
+            "name": "min_increment_bps",
+            "type": "u16"
+          },
+          {
+            "name": "bid_horizon_epochs",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdCreative",
+      "docs": [
+        "Image + text + click URL (A10).",
+        "⚠️ Must match `platform_core::AdCreative` field-for-field, including every `max_len`",
+        "(bytes, not characters) — the FE renders both with one renderer (pc 01 §7).",
+        "`#[max_len]` only sizes the account; lengths are enforced with `require!` in the ix."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "image_url",
+            "docs": [
+              "R2 object URL (`ads/<sha256>.<ext>`). Empty while `TextOnly`."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "image_sha256",
+            "docs": [
+              "FE must check the fetched image hashes to this. All zeros while `TextOnly`."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "text",
+            "docs": [
+              "Fallback shown instead of the image (A13)."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "click_url",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdSlotAuction",
+      "docs": [
+        "PDA `[AD_SLOT_SEED, game_program, epoch.to_le_bytes(), &[slot_index]]` — one per",
+        "(game, epoch, slot); state + escrow of the highest bid (design §3). 779 bytes.",
+        "Created by `open_auction` (the first bid), so there is always a leader."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "creative_status",
+            "docs": [
+              "offset 10 — memcmp-able."
+            ],
+            "type": {
+              "defined": {
+                "name": "CreativeStatus"
+              }
+            }
+          },
+          {
+            "name": "settled",
+            "docs": [
+              "offset 11 — memcmp-able (crank finds unsettled auctions)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "slot_index",
+            "docs": [
+              "offset 12 — duplicates the seed."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "game_program",
+            "docs": [
+              "offset 13 — duplicates the seed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "docs": [
+              "offset 45 — duplicates the seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "width",
+            "docs": [
+              "offset 53 — snapshot of slots[slot_index]."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "docs": [
+              "offset 55"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "close_ts",
+            "docs": [
+              "offset 57 — epoch_start_ts − auction_close_lead_secs (snapshot)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "epoch_start_ts",
+            "docs": [
+              "offset 65 — genesis_ts + epoch × epoch_duration_secs (snapshot)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "epoch_end_ts",
+            "docs": [
+              "offset 73 — epoch_start_ts + epoch_duration_secs (snapshot)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "fee_bps",
+            "docs": [
+              "offset 81 — PlatformConfig.ad_fee_bps at open_auction (rev 3 #7)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "min_increment_bps",
+            "docs": [
+              "offset 83 — snapshot."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "rent_payer",
+            "docs": [
+              "offset 85 — the first bidder; gets the rent back on close (D11). Fixed offset."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "highest_bidder",
+            "docs": [
+              "offset 117 — never empty (account is born with a bid)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "highest_bid",
+            "docs": [
+              "offset 149 — winning amount; held in escrow until settle, history after."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bid_count",
+            "docs": [
+              "offset 157"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "reject_count",
+            "docs": [
+              "offset 161"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "last_reject_flags",
+            "docs": [
+              "offset 163 — bitmask of the latest reject/revoke reason (design §7.3)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "approved_at",
+            "docs": [
+              "offset 167 — last approve time; 0 = none (reset by revoke)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "offset 175"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "offset 183 — before `creative` so every fixed field keeps a fixed offset."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creative",
+            "docs": [
+              "offset 215 — variable length (max 564)."
+            ],
+            "type": {
+              "defined": {
+                "name": "AdCreative"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdSlotSpec",
+      "docs": [
+        "One ad slot of a game (5 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "width",
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "type": "u16"
+          },
+          {
+            "name": "active",
+            "docs": [
+              "false = no new auction for this slot (existing ones continue)."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AdSlotSpecInput",
+      "docs": [
+        "Instruction input for one slot (tuples are not supported by the Anchor IDL)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "width",
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuctionClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "rent_payer",
+            "type": "pubkey"
+          },
+          {
+            "name": "refunded",
+            "docs": [
+              "Lamports returned to rent_payer."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuctionOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "rent_payer",
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "close_ts",
+            "type": "i64"
+          },
+          {
+            "name": "epoch_start_ts",
+            "type": "i64"
+          },
+          {
+            "name": "epoch_end_ts",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BidPlaced",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "bidder",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "New total bid."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "refunded_to",
+            "docs": [
+              "Previous leader refunded in the same tx (None on first bid / self-raise)."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "refunded",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreativeApproved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "moderator",
+            "docs": [
+              "Signer holding platform-core's Moderator role."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "CreativeStatus"
+              }
+            }
+          },
+          {
+            "name": "image_sha256",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "image_reject_flags",
+            "docs": [
+              "Non-zero only for a text-only approval whose image was rejected."
+            ],
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreativeRejected",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "moderator",
+            "type": "pubkey"
+          },
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "flags",
+            "type": "u32"
+          },
+          {
+            "name": "reject_count",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreativeRevoked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "moderator",
+            "type": "pubkey"
+          },
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "prev_status",
+            "type": {
+              "defined": {
+                "name": "CreativeStatus"
+              }
+            }
+          },
+          {
+            "name": "flags",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreativeStatus",
+      "docs": [
+        "What the FE may show for an auction (design §4.1). Time-based phases are NOT stored —",
+        "they are computed from `Clock` (`math::phase`).",
+        "⚠️ Never reorder. INVARIANT: every explicit value == its variant index (the IDL carries",
+        "no discriminant values; `declare_program!` consumers encode the index). Append only.",
+        "Guarded by tests/test_layout.rs."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Empty"
+          },
+          {
+            "name": "TextOnly"
+          },
+          {
+            "name": "Approved"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameAdConfig",
+      "docs": [
+        "PDA `[AD_CONFIG_SEED, game_program]` — one per game (design §2). 199 bytes.",
+        "Created by `GameEntry.owner`; there is no owner/revenue field here (rev 3 #4)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "docs": [
+              "offset 8"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "offset 9"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "slot_count",
+            "docs": [
+              "offset 10 — slots in use (≤ MAX_SLOTS)."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "game_program",
+            "docs": [
+              "offset 11 — duplicates the seed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "genesis_ts",
+            "docs": [
+              "offset 43 — start of epoch 0; immutable; multiple of 86,400 (Q7)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "epoch_duration_secs",
+            "docs": [
+              "offset 51 — multiple of 86,400, ≤ MAX_EPOCH_DURATION_SECS; immutable (design §4.4)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "auction_close_lead_secs",
+            "docs": [
+              "offset 59 — ≥ MIN_CLOSE_LEAD_SECS (D5); snapshot into each new auction."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "min_bid",
+            "docs": [
+              "offset 67 — lamports (A12); ≥ min_bid_floor."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "min_increment_bps",
+            "docs": [
+              "offset 75 — 1..=10,000; snapshot into each new auction."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "bid_horizon_epochs",
+            "docs": [
+              "offset 77 — ≥ 1; × duration ≤ MAX_HORIZON_SECS."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "slots",
+            "docs": [
+              "offset 79 — fixed array (not Vec) so every offset stays constant. Append-only."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "AdSlotSpec"
+                  }
+                },
+                8
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "offset 119"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "offset 127"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "offset 135"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameEntry",
+      "docs": [
+        "PDA `[GAME_SEED, game_program]`. Never closed (I4) — only `Suspended`.",
+        "Layout: specs/designs/01 §4 (220 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "GameStatus"
+              }
+            }
+          },
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "game_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "game_authority_bump",
+            "type": "u8"
+          },
+          {
+            "name": "registered_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "registered_at",
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "GameStatus",
+      "docs": [
+        "⚠️ Never reorder — the relayer filters `GameEntry` with memcmp(offset 10, 0x00 = Active).",
+        "⚠️ INVARIANT: every explicit value MUST equal its variant index. The IDL carries no",
+        "discriminant values, so `declare_program!` consumers encode the *index*; a gap or",
+        "out-of-order value would silently desync them. Append only, next value = next index",
+        "(guarded by `enum_bytes_frozen_v1` + `enum_byte_equals_declaration_index` and the",
+        "compile-time `enum_tripwire` in tests/test_layout.rs)."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Suspended"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlatformConfig",
+      "docs": [
+        "PDA `[CONFIG_SEED]` — single instance. Layout: specs/designs/01 §2 (97 bytes).",
+        "",
+        "No `max_fee_bps` (X1 — ceiling is `MAX_FEE_BPS` in code), no `treasury`",
+        "(X2 — derive from `TREASURY_SEED`), no `moderator` (rev 3 #5 — RBAC role)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "boost_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "ad_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "admin_count",
+            "type": "u16"
+          },
+          {
+            "name": "treasury_bump",
+            "type": "u8"
+          },
+          {
+            "name": "initialized_at",
+            "type": "i64"
+          },
+          {
+            "name": "updated_at",
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Role",
+      "docs": [
+        "⚠️ Never reorder — `role as u8` is a PDA seed.",
+        "⚠️ INVARIANT: every explicit value MUST equal its variant index. The IDL carries no",
+        "discriminant values, so `declare_program!` consumers encode the *index*; a gap or",
+        "out-of-order value would silently desync them. Append only, next value = next index",
+        "(guarded by `enum_bytes_frozen_v1` + `enum_byte_equals_declaration_index` and the",
+        "compile-time `enum_tripwire` in tests/test_layout.rs)."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Admin"
+          },
+          {
+            "name": "GameRegistrar"
+          },
+          {
+            "name": "Moderator"
+          },
+          {
+            "name": "FeeManager"
+          },
+          {
+            "name": "AllowlistManager"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RoleMember",
+      "docs": [
+        "PDA `[ROLE_SEED, &[role as u8], member]`. Existing = has role; closed = revoked.",
+        "EVM analogue: OZ `AccessControl` `mapping(bytes32 => mapping(address => bool))`.",
+        "Layout: specs/designs/01 §3 (115 bytes)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "role",
+            "type": {
+              "defined": {
+                "name": "Role"
+              }
+            }
+          },
+          {
+            "name": "member",
+            "type": "pubkey"
+          },
+          {
+            "name": "granted_by",
+            "type": "pubkey"
+          },
+          {
+            "name": "granted_at",
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Settled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "winner",
+            "docs": [
+              "Winner and winning amount — kept in the event because the account is closed later."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "net",
+            "type": "u64"
+          },
+          {
+            "name": "game_owner",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SlotActiveSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SlotAdded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "game_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "width",
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "type": "u16"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "ACCOUNT_VERSION",
+      "docs": [
+        "Layout version written into byte 8 of every account at `init`."
+      ],
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "AD_CLICK_URL_MAX_LEN",
+      "type": "u16",
+      "value": "200"
+    },
+    {
+      "name": "AD_CONFIG_SEED",
+      "docs": [
+        "`[AD_CONFIG_SEED, game_program]`"
+      ],
+      "type": "bytes",
+      "value": "[97, 100, 95, 99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "AD_IMAGE_URL_MAX_LEN",
+      "docs": [
+        "`AdCreative` limits in BYTES (Thai ≈ 3 bytes per character).",
+        "⚠️ Must equal platform-core's (pc 01 §7) — value AND type (u16) — shared FE renderer."
+      ],
+      "type": "u16",
+      "value": "200"
+    },
+    {
+      "name": "AD_SLOT_AUCTION_SIZE",
+      "docs": [
+        "`AdSlotAuction` data size (discriminator included, creative fully reserved)."
+      ],
+      "type": "u32",
+      "value": "779"
+    },
+    {
+      "name": "AD_SLOT_SEED",
+      "docs": [
+        "`[AD_SLOT_SEED, game_program, epoch.to_le_bytes(), &[slot_index]]`"
+      ],
+      "type": "bytes",
+      "value": "[97, 100, 95, 115, 108, 111, 116]"
+    },
+    {
+      "name": "AD_TEXT_MAX_LEN",
+      "type": "u16",
+      "value": "120"
+    },
+    {
+      "name": "BPS_DENOMINATOR",
+      "type": "u16",
+      "value": "10000"
+    },
+    {
+      "name": "CREATIVE_OFFSET",
+      "docs": [
+        "`AdSlotAuction.creative` (start of the variable-length tail)."
+      ],
+      "type": "u32",
+      "value": "215"
+    },
+    {
+      "name": "CREATIVE_STATUS_OFFSET",
+      "docs": [
+        "`AdSlotAuction.creative_status` (u8: 0 Empty · 1 TextOnly · 2 Approved)."
+      ],
+      "type": "u32",
+      "value": "10"
+    },
+    {
+      "name": "GAME_AD_CONFIG_SIZE",
+      "docs": [
+        "`GameAdConfig` data size (discriminator included). u32 like the offsets (TS `dataSize`).",
+        "Tied to `INIT_SPACE` by a compile-time assert in math.rs."
+      ],
+      "type": "u32",
+      "value": "199"
+    },
+    {
+      "name": "MAX_EPOCH_DURATION_SECS",
+      "docs": [
+        "Q11: cap on one epoch — bounds how long an auction's rent can stay locked."
+      ],
+      "type": "i64",
+      "value": "2592000"
+    },
+    {
+      "name": "MAX_FEE_BPS",
+      "docs": [
+        "Fee ceiling (C2). ad-pool re-checks the snapshot it takes from platform-core",
+        "and fails closed above it (design §5.3)."
+      ],
+      "type": "u16",
+      "value": "2000"
+    },
+    {
+      "name": "MAX_HORIZON_SECS",
+      "docs": [
+        "Q11: cap on `bid_horizon_epochs × epoch_duration_secs`."
+      ],
+      "type": "i64",
+      "value": "7776000"
+    },
+    {
+      "name": "MAX_SLOTS",
+      "docs": [
+        "Fixed length of `GameAdConfig.slots`."
+      ],
+      "type": "u8",
+      "value": "8"
+    },
+    {
+      "name": "MIN_CLOSE_LEAD_SECS",
+      "docs": [
+        "D5: bidding closes at least 7 days before an epoch starts."
+      ],
+      "type": "i64",
+      "value": "604800"
+    },
+    {
+      "name": "REJECT_DIMENSIONS",
+      "type": "u32",
+      "value": "2"
+    },
+    {
+      "name": "REJECT_FILE_TYPE",
+      "type": "u32",
+      "value": "1"
+    },
+    {
+      "name": "REJECT_IMAGE_MODERATION",
+      "type": "u32",
+      "value": "4"
+    },
+    {
+      "name": "REJECT_TEXT_MODERATION",
+      "type": "u32",
+      "value": "8"
+    },
+    {
+      "name": "REJECT_TOO_LONG",
+      "type": "u32",
+      "value": "64"
+    },
+    {
+      "name": "REJECT_URL_REPUTATION",
+      "type": "u32",
+      "value": "32"
+    },
+    {
+      "name": "REJECT_URL_RULES",
+      "type": "u32",
+      "value": "16"
+    },
+    {
+      "name": "RENT_PAYER_OFFSET",
+      "docs": [
+        "`AdSlotAuction.rent_payer` (Pubkey)."
+      ],
+      "type": "u32",
+      "value": "85"
+    },
+    {
+      "name": "SECS_PER_DAY",
+      "type": "i64",
+      "value": "86400"
+    },
+    {
+      "name": "SETTLED_OFFSET",
+      "docs": [
+        "`AdSlotAuction.settled` (bool) — crank finds unsettled auctions with byte 0x00."
+      ],
+      "type": "u32",
+      "value": "11"
+    }
+  ]
+}
