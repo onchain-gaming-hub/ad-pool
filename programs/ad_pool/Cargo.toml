@@ -27,9 +27,16 @@ anchor-lang = "1.2.1"
 # LiteSVM 0.17 = agave 4.3 runtime — matches cargo-build-sbf 4.3.0 (SBPF v3).
 # 0.10 (agave 3.1) cannot load the .so (platform-core lesson).
 litesvm = "0.17.0"
+solana-account = "4.7.0"
+solana-message = "4.2.4"
+solana-transaction = "4.1.5"
+solana-signer = "3.0.1"
+solana-keypair = "3.1.2"
 sha2 = "0.11.0"
 # Golden test reads idls/platform_core.json to check shared constants.
 serde_json = "1.0.151"
+# Decode `Program data:` event logs in tests.
+base64 = "0.22.1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

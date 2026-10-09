@@ -2,11 +2,12 @@
 //! with creatives written on chain by a Moderator-role Worker after off-chain checks.
 //! Design: specs/designs/01-program-design-v1.md · Plan: specs/designs/02-implementation-plan.md
 //!
-//! Phase P0: layouts, constants, errors, events and pure helpers only (no instructions yet).
+//! Phases: P0 layouts · P1 config instructions.
 
 pub mod constants;
 pub mod error;
 pub mod events;
+pub mod instructions;
 pub mod math;
 pub mod state;
 
@@ -15,6 +16,7 @@ use anchor_lang::prelude::*;
 pub use constants::*;
 pub use error::*;
 pub use events::*;
+pub use instructions::*;
 pub use state::*;
 
 declare_id!("6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk");
@@ -24,4 +26,63 @@ declare_id!("6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk");
 declare_program!(platform_core);
 
 #[program]
-pub mod ad_pool {}
+pub mod ad_pool {
+    use super::*;
+
+    /// GameEntry.owner of an Active game. One config per game.
+    #[allow(clippy::too_many_arguments)]
+    pub fn init_ad_config(
+        ctx: Context<InitAdConfig>,
+        game_program: Pubkey,
+        genesis_ts: i64,
+        epoch_duration_secs: i64,
+        auction_close_lead_secs: i64,
+        min_bid: u64,
+        min_increment_bps: u16,
+        bid_horizon_epochs: u16,
+        slots: Vec<AdSlotSpecInput>,
+    ) -> Result<()> {
+        instructions::config::handle_init_ad_config(
+            ctx,
+            game_program,
+            genesis_ts,
+            epoch_duration_secs,
+            auction_close_lead_secs,
+            min_bid,
+            min_increment_bps,
+            bid_horizon_epochs,
+            slots,
+        )
+    }
+
+    /// GameEntry.owner. `None` keeps the current value; genesis/duration are immutable.
+    pub fn update_ad_config(
+        ctx: Context<ManageAdConfig>,
+        auction_close_lead_secs: Option<i64>,
+        min_bid: Option<u64>,
+        min_increment_bps: Option<u16>,
+        bid_horizon_epochs: Option<u16>,
+    ) -> Result<()> {
+        instructions::config::handle_update_ad_config(
+            ctx,
+            auction_close_lead_secs,
+            min_bid,
+            min_increment_bps,
+            bid_horizon_epochs,
+        )
+    }
+
+    /// GameEntry.owner. Append-only.
+    pub fn add_slot(ctx: Context<ManageAdConfig>, width: u16, height: u16) -> Result<()> {
+        instructions::config::handle_add_slot(ctx, width, height)
+    }
+
+    /// GameEntry.owner. `false` = no new auctions on this slot.
+    pub fn set_slot_active(
+        ctx: Context<ManageAdConfig>,
+        slot_index: u8,
+        active: bool,
+    ) -> Result<()> {
+        instructions::config::handle_set_slot_active(ctx, slot_index, active)
+    }
+}

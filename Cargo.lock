@@ -7,9 +7,15 @@ name = "ad_pool"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "base64 0.22.1",
  "litesvm",
  "serde_json",
  "sha2 0.11.0",
+ "solana-account",
+ "solana-keypair",
+ "solana-message",
+ "solana-signer",
+ "solana-transaction",
 ]
 
 [[package]]

@@ -41,6 +41,20 @@ pub fn phase(now: i64, close_ts: i64, epoch_start_ts: i64, epoch_end_ts: i64) ->
     }
 }
 
+/// Epoch containing `now`, or `None` before `genesis_ts` (design §13 step 2).
+pub fn epoch_at(now: i64, genesis_ts: i64, epoch_duration_secs: i64) -> Option<u64> {
+    if now < genesis_ts || epoch_duration_secs <= 0 {
+        return None;
+    }
+    u64::try_from(now.checked_sub(genesis_ts)? / epoch_duration_secs).ok()
+}
+
+impl AdSlotAuction {
+    pub fn phase(&self, now: i64) -> Phase {
+        phase(now, self.close_ts, self.epoch_start_ts, self.epoch_end_ts)
+    }
+}
+
 /// `genesis_ts + epoch × epoch_duration_secs` — `epoch` is converted with
 /// `i64::try_from` (never `as`, which would wrap).
 pub fn epoch_start_ts(genesis_ts: i64, epoch_duration_secs: i64, epoch: u64) -> Result<i64> {
@@ -162,6 +176,17 @@ mod tests {
         let (close, end) = auction_window(start, day, 7 * day).unwrap();
         assert_eq!(close, start - 7 * day);
         assert_eq!(end, start + day);
+    }
+
+    #[test]
+    fn epoch_at_handles_before_genesis_and_boundaries() {
+        let d = 86_400;
+        assert_eq!(epoch_at(-1, 0, d), None);
+        assert_eq!(epoch_at(0, 0, d), Some(0));
+        assert_eq!(epoch_at(d - 1, 0, d), Some(0));
+        assert_eq!(epoch_at(d, 0, d), Some(1));
+        assert_eq!(epoch_at(10 * d + 5, 0, d), Some(10));
+        assert_eq!(epoch_at(5, 0, 0), None);
     }
 
     #[test]
