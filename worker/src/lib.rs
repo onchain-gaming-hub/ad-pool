@@ -9,17 +9,21 @@
 //! - `POST /v1/creative` — multipart submission from the winning bidder: auth + checks (W1)
 //!   → moderation + URL checks → R2 → approve/reject tx (W2). API: ../specs/designs/04-worker-api-v1.md
 //! - `GET /ads/<sha256>.<ext>` — approved image from R2 (content type from the checked kind)
+//! - Cron (W3, `crons` in wrangler.toml): settle / close_auction every due auction (crank key)
+//!   + re-check click_url of live creatives → `revoke_creative` (Moderator key)
 
 pub mod accounts;
 pub mod ads;
 pub mod auth;
 pub mod config;
+pub mod crank;
 pub mod decision;
 pub mod gate;
 pub mod image;
 pub mod moderation;
 pub mod pda;
 pub mod phase;
+pub mod riskcache;
 pub mod rpc;
 pub mod submission;
 pub mod tx;
@@ -35,14 +39,13 @@ mod app {
     use worker::*;
 
     use crate::{
-        accounts, ads, auth, config,
+        accounts, ads, auth, config, crank,
         decision::{self, Check, Outcome, Parts},
         moderation, pda, phase,
         rpc::{RpcClient, RpcError, SendOutcome, TxStatus, redact_url},
         submission::{self, Input, Kind, Limits, Prepared},
         tx::{self, Action, flags},
         urlcheck::{self, Hop},
-        webrisk,
     };
     use solana_signer::Signer;
 
@@ -303,12 +306,20 @@ mod app {
 
     /// Layers 1 + 2 on the submitted (normalized) URL and every redirect hop. Web Risk runs
     /// before each fetch, so a known-bad host is never contacted.
-    async fn url_chain(start: &str, web_risk_key: &str, timeout_ms: u64) -> Check {
+    async fn url_chain(env: &Env, start: &str, web_risk_key: &str, timeout_ms: u64) -> Check {
         let Ok(mut current) = urlcheck::layer1(start) else {
             return Check::fail(flags::URL_LAYER1, "layer1");
         };
         for _ in 0..=urlcheck::MAX_REDIRECTS {
-            match webrisk::lookup(web_risk_key, current.as_str(), timeout_ms).await {
+            match crate::riskcache::lookup_cached(
+                env,
+                web_risk_key,
+                current.as_str(),
+                timeout_ms,
+                now(),
+            )
+            .await
+            {
                 Ok(t) if t.is_empty() => {}
                 Ok(t) => {
                     console_log!(
@@ -390,7 +401,7 @@ mod app {
             let (i, t, u) = futures_util::future::join3(
                 image_call,
                 moderation::call(&openai, moderation::text_body(&p.text), cfg.rpc_timeout_ms),
-                url_chain(&p.click_url_normalized, &web_risk, cfg.rpc_timeout_ms),
+                url_chain(env, &p.click_url_normalized, &web_risk, cfg.rpc_timeout_ms),
             )
             .await;
             (
@@ -489,6 +500,8 @@ mod app {
             Action::ApproveTextOnly { .. } => "text_only",
             Action::ApproveImage { .. } => "image_approved",
             Action::Reject { .. } => "rejected",
+            // never produced by `decide` (W3 crank only)
+            Action::Revoke { .. } => "revoked",
         };
         console_log!("{} {:?} → {label} sig {signature}", p.auction, p.kind);
         match client.send_transaction(&b64).await {
@@ -559,7 +572,7 @@ mod app {
                 body["image_reject_flags"] = json!(image_reject_flags);
                 body["reasons"] = json!(details(&[&image]));
             }
-            Action::Reject { flags } => {
+            Action::Reject { flags } | Action::Revoke { flags } => {
                 body["flags"] = json!(flags);
                 body["reasons"] = json!(details(&[&image, &text, &url]));
             }
@@ -625,6 +638,200 @@ mod app {
             headers.set(k, &v)?;
         }
         Ok(Response::from_bytes(bytes)?.with_headers(headers))
+    }
+
+    /// Loads a keypair secret and checks it holds the configured address.
+    fn signer(env: &Env, secret: &str, want: &Pubkey) -> Option<solana_keypair::Keypair> {
+        match tx::keypair_from_base58(&secret_or_empty(env, secret)) {
+            Ok(k) if k.pubkey() == *want => Some(k),
+            Ok(_) => {
+                console_error!("{secret} does not hold its configured address");
+                None
+            }
+            Err(e) => {
+                console_error!("{secret}: {e}");
+                None
+            }
+        }
+    }
+
+    /// Sign + send one tx; logs the outcome (the next run sees the result on chain).
+    async fn send_logged(
+        client: &RpcClient,
+        payer: &solana_keypair::Keypair,
+        ixs: &[solana_instruction::Instruction],
+        what: &str,
+    ) -> bool {
+        let (blockhash, _) = match client.get_latest_blockhash().await {
+            Ok(b) => b,
+            Err(e) => {
+                console_error!("crank {what}: blockhash {}", e.public_code());
+                return false;
+            }
+        };
+        let (wire, sig) = match tx::sign_many(payer, ixs, &blockhash) {
+            Ok(x) => x,
+            Err(e) => {
+                console_error!("crank {what}: sign {e}");
+                return false;
+            }
+        };
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&wire);
+        match client.send_transaction(&b64).await {
+            SendOutcome::Accepted(_) | SendOutcome::AlreadyProcessed => {
+                console_log!("crank {what}: sent {sig}");
+                true
+            }
+            SendOutcome::Rejected { reason, custom, .. } => {
+                console_error!("crank {what}: rejected {reason} custom={custom:?}");
+                false
+            }
+            SendOutcome::Unknown(why) => {
+                console_error!("crank {what}: unknown {why} sig {sig}");
+                false
+            }
+        }
+    }
+
+    /// W3 crank run (design §6.1 + §7.4). Never panics; every failure is logged and the
+    /// next run retries.
+    async fn run_crank(env: &Env) -> Result<()> {
+        let cfg = load(env)?;
+        let client = rpc(env, &cfg)?;
+        if let Err(e) = ensure_cluster(&client, &cfg).await {
+            console_error!("crank: rpc {}", e.public_code());
+            return Ok(());
+        }
+        let t = now();
+        let list = match client
+            .get_program_accounts(
+                &cfg.ad_pool.to_string(),
+                accounts::AD_SLOT_AUCTION_SIZE,
+                &accounts::AD_SLOT_AUCTION_DISCRIMINATOR,
+            )
+            .await
+        {
+            Ok(l) => l,
+            Err(e) => {
+                console_error!("crank: getProgramAccounts {}", e.public_code());
+                return Ok(());
+            }
+        };
+        let mut auctions = Vec::with_capacity(list.len());
+        for (k, info) in list {
+            match accounts::ad_slot_auction(&info, &cfg.ad_pool) {
+                Ok(a) => auctions.push((k, a)),
+                Err(e) => console_error!("crank: auction {k} undecodable: {e}"),
+            }
+        }
+        let plan = crank::plan(t, &auctions);
+        for s in &plan.stale {
+            console_error!(
+                "STALE {} {:?} overdue {} s",
+                s.auction,
+                s.what,
+                s.overdue_secs
+            );
+        }
+        let find = |k: &Pubkey| auctions.iter().find(|(x, _)| x == k).map(|(_, a)| a);
+
+        let mut sent = 0;
+        if !plan.txs.is_empty()
+            && let Some(crank_key) = signer(env, "CRANK_KEYPAIR", &cfg.crank)
+        {
+            for (k, due) in &plan.txs {
+                let Some(a) = find(k) else { continue };
+                let mut ixs = vec![];
+                if matches!(due, crank::Due::Settle | crank::Due::SettleAndClose) {
+                    // GameEntry.owner is read at settle time (pc rev 3 #6)
+                    let entry = pda::game_entry(&cfg.platform_core, &a.game_program);
+                    let owner = match client.get_account_info(&entry.to_string()).await {
+                        Ok(Some(info)) => match accounts::game_entry(&info, &cfg.platform_core) {
+                            Ok(g) => g.owner,
+                            Err(e) => {
+                                console_error!("crank {k}: game entry undecodable: {e}");
+                                continue;
+                            }
+                        },
+                        Ok(None) => {
+                            console_error!("crank {k}: no GameEntry — settle impossible");
+                            continue;
+                        }
+                        Err(e) => {
+                            console_error!("crank {k}: game entry {}", e.public_code());
+                            continue;
+                        }
+                    };
+                    ixs.push(tx::settle_instruction(
+                        &cfg.ad_pool,
+                        &cfg.platform_core,
+                        k,
+                        &a.game_program,
+                        &owner,
+                    ));
+                }
+                if matches!(due, crank::Due::Close | crank::Due::SettleAndClose) {
+                    ixs.push(tx::close_instruction(&cfg.ad_pool, k, &a.rent_payer));
+                }
+                if send_logged(&client, &crank_key, &ixs, &format!("{due:?} {k}")).await {
+                    sent += 1;
+                }
+            }
+        }
+
+        let mut revoked = 0;
+        let mut skipped = 0;
+        if !plan.rechecks.is_empty() {
+            let web_risk = secret_or_empty(env, "WEB_RISK_API_KEY");
+            let moderator = signer(env, "MODERATOR_KEYPAIR", &cfg.moderator);
+            for k in &plan.rechecks {
+                let Some(a) = find(k) else { continue };
+                match url_chain(env, &a.creative.click_url, &web_risk, cfg.rpc_timeout_ms).await {
+                    Check::Pass => {}
+                    Check::Unavailable(r) => {
+                        console_error!("recheck {k}: unavailable {r} (no action)")
+                    }
+                    Check::Fail { flags, detail } => {
+                        console_error!("recheck {k}: click_url failed {detail:?} → revoke");
+                        let Some(m) = &moderator else {
+                            console_error!("recheck {k}: revoke SKIPPED — no usable moderator key");
+                            skipped += 1;
+                            continue;
+                        };
+                        let ix = tx::instruction(
+                            &cfg.ad_pool,
+                            &cfg.platform_core,
+                            &m.pubkey(),
+                            k,
+                            &Action::Revoke { flags: flags.get() },
+                        );
+                        if send_logged(&client, m, &[ix], &format!("revoke {k}")).await {
+                            revoked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        console_log!(
+            "crank run: {} auctions · {} due ({} sent, {} deferred) · {} rechecked · {} revoked · {} revoke skipped · {} stale",
+            auctions.len(),
+            plan.txs.len() + plan.deferred,
+            sent,
+            plan.deferred,
+            plan.rechecks.len(),
+            revoked,
+            skipped,
+            plan.stale.len()
+        );
+        Ok(())
+    }
+
+    #[event(scheduled)]
+    async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
+        if let Err(e) = run_crank(&env).await {
+            console_error!("crank run failed: {e}");
+        }
     }
 
     #[event(fetch)]

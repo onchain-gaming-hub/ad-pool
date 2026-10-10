@@ -691,6 +691,10 @@ fn moderator_ixs_match_the_program() {
             Action::Reject { flags: 0x30 },
             ad_pool::instruction::RejectCreative { flags: 0x30 }.data(),
         ),
+        (
+            Action::Revoke { flags: 0x20 },
+            ad_pool::instruction::RevokeCreative { flags: 0x20 }.data(),
+        ),
     ];
     // all moderator ixs share one Accounts struct (`Moderate`)
     let want_metas = ad_pool::accounts::Moderate {
@@ -721,6 +725,9 @@ fn moderator_ixs_match_the_program() {
         ("approve_creative", tx::APPROVE_CREATIVE_DISCRIMINATOR),
         ("approve_image", tx::APPROVE_IMAGE_DISCRIMINATOR),
         ("reject_creative", tx::REJECT_CREATIVE_DISCRIMINATOR),
+        ("revoke_creative", tx::REVOKE_CREATIVE_DISCRIMINATOR),
+        ("settle", tx::SETTLE_DISCRIMINATOR),
+        ("close_auction", tx::CLOSE_AUCTION_DISCRIMINATOR),
     ] {
         let i = ap["instructions"]
             .as_array()
@@ -731,4 +738,52 @@ fn moderator_ixs_match_the_program() {
         let want: Vec<u8> = serde_json::from_value(i["discriminator"].clone()).unwrap();
         assert_eq!(want, d, "{name}");
     }
+}
+
+#[test]
+fn crank_ixs_match_the_program() {
+    use ad_pool_worker::tx;
+    use anchor_lang::{InstructionData, ToAccountMetas};
+
+    let (ad_pool_id, pc_id) = (to_w(&ad_pool::ID), to_w(&platform_core::ID));
+    let (auction, game, owner, rent_payer) = (wk(4), wk(5), wk(6), wk(7));
+    let a = |k: Pubkey| APubkey::new_from_array(k.to_bytes());
+    let metas = |m: Vec<anchor_lang::prelude::AccountMeta>| -> Vec<(Pubkey, bool, bool)> {
+        m.iter()
+            .map(|m| (to_w(&m.pubkey), m.is_signer, m.is_writable))
+            .collect()
+    };
+    let got = |ix: &solana_instruction::Instruction| -> Vec<(Pubkey, bool, bool)> {
+        ix.accounts
+            .iter()
+            .map(|m| (m.pubkey, m.is_signer, m.is_writable))
+            .collect()
+    };
+
+    let s = tx::settle_instruction(&ad_pool_id, &pc_id, &auction, &game, &owner);
+    assert_eq!(s.data, ad_pool::instruction::Settle {}.data());
+    let want = ad_pool::accounts::Settle {
+        auction: a(auction),
+        game_entry: a(pda::game_entry(&pc_id, &game)),
+        game_owner: a(owner),
+        config: a(pda::platform_config(&pc_id)),
+        treasury: a(pda::treasury(&pc_id)),
+    }
+    .to_account_metas(None);
+    assert_eq!(got(&s), metas(want));
+
+    let c = tx::close_instruction(&ad_pool_id, &auction, &rent_payer);
+    assert_eq!(c.data, ad_pool::instruction::CloseAuction {}.data());
+    let want = ad_pool::accounts::CloseAuction {
+        auction: a(auction),
+        rent_payer: a(rent_payer),
+    }
+    .to_account_metas(None);
+    assert_eq!(got(&c), metas(want));
+
+    // settle + close in one tx, crank key = fee payer and only signer
+    let crank = solana_keypair::Keypair::new();
+    let (bytes, _) =
+        tx::sign_many(&crank, &[s, c], &solana_hash::Hash::new_from_array([1; 32])).unwrap();
+    assert!(bytes.len() < 1232);
 }

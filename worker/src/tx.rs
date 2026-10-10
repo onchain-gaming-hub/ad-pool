@@ -17,6 +17,9 @@ use crate::{accounts::Role, pda};
 pub const APPROVE_CREATIVE_DISCRIMINATOR: [u8; 8] = [111, 12, 141, 173, 1, 3, 255, 94];
 pub const APPROVE_IMAGE_DISCRIMINATOR: [u8; 8] = [114, 23, 242, 150, 209, 27, 43, 147];
 pub const REJECT_CREATIVE_DISCRIMINATOR: [u8; 8] = [121, 206, 31, 210, 38, 54, 232, 60];
+pub const REVOKE_CREATIVE_DISCRIMINATOR: [u8; 8] = [84, 177, 210, 233, 240, 176, 2, 166];
+pub const SETTLE_DISCRIMINATOR: [u8; 8] = [175, 42, 185, 87, 144, 131, 102, 212];
+pub const CLOSE_AUCTION_DISCRIMINATOR: [u8; 8] = [225, 129, 91, 48, 215, 73, 203, 172];
 
 /// Reason bits for `reject_creative.flags` / `image_reject_flags` / `last_reject_flags`
 /// (design §7.3). The Worker always sends at least one bit (the program accepts 0).
@@ -53,6 +56,8 @@ pub enum Action {
     },
     /// `reject_creative` — status unchanged, reasons on chain
     Reject { flags: u32 },
+    /// `revoke_creative` (W3 re-check) — `TextOnly`/`Approved` → `Empty`, reasons on chain
+    Revoke { flags: u32 },
 }
 
 fn borsh_string(out: &mut Vec<u8>, s: &str) {
@@ -102,6 +107,10 @@ pub fn ix_data(action: &Action) -> Vec<u8> {
             d.extend_from_slice(&REJECT_CREATIVE_DISCRIMINATOR);
             d.extend_from_slice(&flags.to_le_bytes());
         }
+        Action::Revoke { flags } => {
+            d.extend_from_slice(&REVOKE_CREATIVE_DISCRIMINATOR);
+            d.extend_from_slice(&flags.to_le_bytes());
+        }
     }
     d
 }
@@ -129,6 +138,40 @@ pub fn instruction(
     )
 }
 
+/// `settle` (permissionless, W3 crank): no signer in the ix — the crank key only pays the fee.
+/// `game_owner` = `GameEntry.owner` read at settle time (the program checks the address).
+pub fn settle_instruction(
+    ad_pool: &Pubkey,
+    platform_core: &Pubkey,
+    auction: &Pubkey,
+    game_program: &Pubkey,
+    game_owner: &Pubkey,
+) -> Instruction {
+    Instruction::new_with_bytes(
+        *ad_pool,
+        &SETTLE_DISCRIMINATOR,
+        vec![
+            AccountMeta::new(*auction, false),
+            AccountMeta::new_readonly(pda::game_entry(platform_core, game_program), false),
+            AccountMeta::new(*game_owner, false),
+            AccountMeta::new_readonly(pda::platform_config(platform_core), false),
+            AccountMeta::new(pda::treasury(platform_core), false),
+        ],
+    )
+}
+
+/// `close_auction` (permissionless pure close): rent goes to the stored `rent_payer` only.
+pub fn close_instruction(ad_pool: &Pubkey, auction: &Pubkey, rent_payer: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        *ad_pool,
+        &CLOSE_AUCTION_DISCRIMINATOR,
+        vec![
+            AccountMeta::new(*auction, false),
+            AccountMeta::new(*rent_payer, false),
+        ],
+    )
+}
+
 /// Legacy message, Moderator = fee payer + only signer → wire bytes (what `sendTransaction`
 /// takes base64-encoded) and the signature (base58 = the tx id).
 pub fn sign(
@@ -136,12 +179,22 @@ pub fn sign(
     ix: Instruction,
     blockhash: &Hash,
 ) -> Result<(Vec<u8>, String), String> {
-    let msg = Message::new_with_blockhash(&[ix], Some(&moderator.pubkey()), blockhash);
+    sign_many(moderator, &[ix], blockhash)
+}
+
+/// Same, several ixs (crank: `settle` + `close_auction` in one tx). `payer` must be the only
+/// signer — no ix may require another signature.
+pub fn sign_many(
+    payer: &Keypair,
+    ixs: &[Instruction],
+    blockhash: &Hash,
+) -> Result<(Vec<u8>, String), String> {
+    let msg = Message::new_with_blockhash(ixs, Some(&payer.pubkey()), blockhash);
     if msg.header.num_required_signatures != 1 {
-        return Err("moderator tx must have exactly one signer".into());
+        return Err("tx must have exactly one signer".into());
     }
     let message = VersionedMessage::Legacy(msg);
-    let signature = moderator.sign_message(&message.serialize());
+    let signature = payer.sign_message(&message.serialize());
     let tx = VersionedTransaction {
         signatures: vec![signature],
         message,
@@ -153,15 +206,15 @@ pub fn sign(
     Ok((bytes, signature.to_string()))
 }
 
-/// `MODERATOR_KEYPAIR` secret: base58 of the 64-byte keypair (Phantom / `solana-keygen` export).
+/// `MODERATOR_KEYPAIR` / `CRANK_KEYPAIR` secret: base58 of the 64-byte keypair.
 pub fn keypair_from_base58(s: &str) -> Result<Keypair, String> {
     let bytes = bs58::decode(s.trim())
         .into_vec()
-        .map_err(|_| "MODERATOR_KEYPAIR is not base58".to_string())?;
+        .map_err(|_| "keypair secret is not base58".to_string())?;
     if bytes.len() != 64 {
-        return Err("MODERATOR_KEYPAIR must be 64 bytes".into());
+        return Err("keypair secret must be 64 bytes".into());
     }
-    Keypair::try_from(bytes.as_slice()).map_err(|_| "MODERATOR_KEYPAIR invalid".into())
+    Keypair::try_from(bytes.as_slice()).map_err(|_| "keypair secret invalid".into())
 }
 
 #[cfg(test)]

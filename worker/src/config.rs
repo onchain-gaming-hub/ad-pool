@@ -24,6 +24,8 @@ pub struct Config {
     pub max_submissions_per_hour: usize,
     /// Pubkey the `MODERATOR_KEYPAIR` secret must hold (catches a wrong / rotated secret).
     pub moderator: Pubkey,
+    /// Pubkey of `CRANK_KEYPAIR` (W3: no role, fee SOL only — settle / close_auction).
+    pub crank: Pubkey,
     /// Origin the Worker serves `GET /ads/<sha256>.<ext>` from; `image_url` on chain =
     /// `<PUBLIC_BASE_URL>/ads/<sha256>.<ext>`. https, no trailing slash.
     pub public_base_url: String,
@@ -82,8 +84,17 @@ pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, Confi
     {
         return Err(ConfigError("PUBLIC_BASE_URL".into()));
     }
+    let moderator = key("MODERATOR_ADDRESS")?;
+    let crank = key("CRANK_ADDRESS")?;
+    if moderator == crank {
+        // the permissionless crank must never run on the most powerful key (design §6.1)
+        return Err(ConfigError(
+            "CRANK_ADDRESS must differ from MODERATOR_ADDRESS".into(),
+        ));
+    }
     Ok(Config {
-        moderator: key("MODERATOR_ADDRESS")?,
+        moderator,
+        crank,
         public_base_url,
         auth_domain,
         max_image_bytes,
@@ -138,6 +149,10 @@ mod tests {
                 "DX6bYh6AwfWpBQT8UBevNocYepauHd965RCr1rE6G6Db",
             ),
             ("PUBLIC_BASE_URL", "https://ads.devnet.example"),
+            (
+                "CRANK_ADDRESS",
+                "ESgASsgG2Uzh4ccQTga5yXoZnkDCCEociVYYe6Trq3LP",
+            ),
         ])
     }
 
@@ -190,6 +205,15 @@ mod tests {
         let mut v = vars();
         v.insert("PUBLIC_BASE_URL", &long);
         assert!(from_lookup(|n| v.get(n).map(|s| s.to_string())).is_err());
+        let mut v = vars();
+        v.insert(
+            "CRANK_ADDRESS",
+            "DX6bYh6AwfWpBQT8UBevNocYepauHd965RCr1rE6G6Db",
+        );
+        assert!(
+            from_lookup(|n| v.get(n).map(|s| s.to_string())).is_err(),
+            "crank = moderator"
+        );
         // another cluster's hash with a "devnet" label must not pass
         let mut v = vars();
         v.insert(

@@ -291,6 +291,50 @@ pub fn parse_signature_status(response: &str) -> Result<TxStatus, RpcError> {
     )
 }
 
+/// All `AdSlotAuction`s of `program`: exact size + discriminator (memcmp offset 0).
+pub fn get_program_accounts_body(
+    id: u64,
+    program: &str,
+    data_size: usize,
+    discriminator: &[u8; 8],
+) -> String {
+    body(
+        id,
+        "getProgramAccounts",
+        json!([program, {
+            "encoding": "base64",
+            "commitment": "confirmed",
+            "filters": [
+                { "dataSize": data_size },
+                { "memcmp": { "offset": 0, "bytes": bs58::encode(discriminator).into_string() } }
+            ]
+        }]),
+    )
+}
+
+pub fn parse_program_accounts(
+    response: &str,
+) -> Result<Vec<(solana_pubkey::Pubkey, AccountInfo)>, RpcError> {
+    let r = result(response)?;
+    let list = r
+        .as_array()
+        .ok_or_else(|| RpcError::BadResponse("not an array".into()))?;
+    list.iter()
+        .map(|item| {
+            let key = item
+                .get("pubkey")
+                .and_then(Value::as_str)
+                .and_then(|k| k.parse().ok())
+                .ok_or_else(|| RpcError::BadResponse("pubkey".into()))?;
+            // reuse the getAccountInfo value parser
+            let wrapped = json!({ "result": { "value": item.get("account") } }).to_string();
+            let info = parse_account_info(&wrapped)?
+                .ok_or_else(|| RpcError::BadResponse("account".into()))?;
+            Ok((key, info))
+        })
+        .collect()
+}
+
 #[cfg(target_arch = "wasm32")]
 pub use client::RpcClient;
 
@@ -337,6 +381,24 @@ mod client {
                 Either::Left((r, _)) => r,
                 Either::Right(_) => Err(RpcError::Timeout),
             }
+        }
+
+        pub async fn get_program_accounts(
+            &self,
+            program: &str,
+            data_size: usize,
+            discriminator: &[u8; 8],
+        ) -> Result<Vec<(solana_pubkey::Pubkey, AccountInfo)>, RpcError> {
+            parse_program_accounts(
+                &self
+                    .post(get_program_accounts_body(
+                        1,
+                        program,
+                        data_size,
+                        discriminator,
+                    ))
+                    .await?,
+            )
         }
 
         pub async fn get_latest_blockhash(&self) -> Result<(solana_hash::Hash, u64), RpcError> {
@@ -571,5 +633,39 @@ mod tests {
         let b: Value = serde_json::from_str(&send_transaction_body(1, "AQ==")).unwrap();
         assert_eq!(b["params"][1]["skipPreflight"], false);
         assert_eq!(b["params"][1]["encoding"], "base64");
+    }
+    #[test]
+    fn program_accounts_body_and_parse() {
+        let b: Value = serde_json::from_str(&get_program_accounts_body(
+            1,
+            "6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk",
+            779,
+            &[0x75, 0xd8, 0xcd, 0x3c, 0x31, 0xdf, 0xc4, 0x12],
+        ))
+        .unwrap();
+        assert_eq!(b["params"][1]["filters"][0]["dataSize"], 779);
+        // same base58 the live devnet query used (2026-10-10)
+        assert_eq!(
+            b["params"][1]["filters"][1]["memcmp"]["bytes"],
+            "LiGDd6wsHLu"
+        );
+        let r = r#"{"jsonrpc":"2.0","result":[{"pubkey":"49LEXhS14NhMsrHhYbxtNkQVq6rZ6AvhiidEoqLSGWQo","account":{"data":["AQID","base64"],"executable":false,"lamports":5,"owner":"6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk","rentEpoch":0,"space":3}}],"id":1}"#;
+        let v = parse_program_accounts(r).unwrap();
+        assert_eq!(v.len(), 1);
+        assert_eq!(
+            v[0].0.to_string(),
+            "49LEXhS14NhMsrHhYbxtNkQVq6rZ6AvhiidEoqLSGWQo"
+        );
+        assert_eq!((v[0].1.lamports, v[0].1.data.clone()), (5, vec![1, 2, 3]));
+        assert!(
+            parse_program_accounts(r#"{"jsonrpc":"2.0","result":[{"pubkey":"x"}],"id":1}"#)
+                .is_err()
+        );
+        assert_eq!(
+            parse_program_accounts(r#"{"jsonrpc":"2.0","result":[],"id":1}"#)
+                .unwrap()
+                .len(),
+            0
+        );
     }
 }

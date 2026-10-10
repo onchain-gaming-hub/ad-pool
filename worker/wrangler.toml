@@ -10,6 +10,7 @@ command = "worker-build --release"
 #   MODERATOR_KEYPAIR  Base58 64-byte keypair holding platform-core's Moderator role
 #   OPENAI_API_KEY     omni-moderation-latest (A9)
 #   WEB_RISK_API_KEY   Web Risk Lookup (A14 layer 2) — separate GCP project, billing on
+#   CRANK_KEYPAIR      (W3) Base58 keypair with NO role, fee SOL only — settle / close_auction
 [vars]
 CLUSTER = "devnet"
 # devnet genesis hash — the Worker refuses to act if the RPC is another cluster.
@@ -29,6 +30,12 @@ MODERATOR_ADDRESS = "DX6bYh6AwfWpBQT8UBevNocYepauHd965RCr1rE6G6Db"
 # Origin of `GET /ads/<sha256>.<ext>` → on-chain image_url. ⚠️ placeholder until W6 deploy
 # (FE can always derive the object from image_sha256 + the Worker origin).
 PUBLIC_BASE_URL = "https://ad-pool.devnet.local"
+# Pubkey of CRANK_KEYPAIR (must differ from MODERATOR_ADDRESS).
+CRANK_ADDRESS = "ESgASsgG2Uzh4ccQTga5yXoZnkDCCEociVYYe6Trq3LP"
+
+# W3 crank: settle / close due auctions + re-check live click_urls.
+[triggers]
+crons = ["*/10 * * * *"]
 
 # Approved images, key = ads/<sha256>.<ext> (A4). `wrangler dev` uses a local simulation.
 [[r2_buckets]]
@@ -37,8 +44,15 @@ bucket_name = "ad-pool-ads-devnet"
 
 # One gate per auction: nonce replay protection + submission rate limit.
 [durable_objects]
-bindings = [{ name = "AUCTION_GATE", class_name = "AuctionGate" }]
+bindings = [
+  { name = "AUCTION_GATE", class_name = "AuctionGate" },
+  { name = "RISK_CACHE", class_name = "RiskCache" },
+]
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["AuctionGate"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RiskCache"]
