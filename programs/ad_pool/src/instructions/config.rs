@@ -131,6 +131,13 @@ pub fn handle_init_ad_config(
         bid_horizon_epochs,
         &Rent::get()?,
     )?;
+    // maintainer 2026-10-10 (design §4.4): genesis is immutable and there is no re-init, so a
+    // far-future typo would brick the game's config forever → cap it at now + 90 days.
+    let now = Clock::get()?.unix_timestamp;
+    let max_genesis = now
+        .checked_add(MAX_HORIZON_SECS)
+        .ok_or_else(|| error!(AdPoolError::MathOverflow))?;
+    require!(genesis_ts <= max_genesis, AdPoolError::InvalidGenesis);
     require!(!slots.is_empty(), AdPoolError::InvalidSlot);
     require!(slots.len() <= MAX_SLOTS as usize, AdPoolError::TooManySlots);
 
@@ -139,7 +146,6 @@ pub fn handle_init_ad_config(
         specs[i] = validate_slot(s.width, s.height)?;
     }
 
-    let now = Clock::get()?.unix_timestamp;
     let cfg = &mut ctx.accounts.ad_config;
     cfg.version = ACCOUNT_VERSION;
     cfg.bump = ctx.bumps.ad_config;

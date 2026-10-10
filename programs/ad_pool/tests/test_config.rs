@@ -708,3 +708,26 @@ fn idl_has_game_ad_config_with_fixed_slot_array() {
         serde_json::json!({"array": [{"defined": {"name": "AdSlotSpec"}}, 8]})
     );
 }
+
+#[test]
+fn init_caps_genesis_at_now_plus_90_days() {
+    // maintainer 2026-10-10: genesis_ts <= now + MAX_HORIZON_SECS (design §4.4).
+    let svm = setup(); // now = T0 (a UTC midnight)
+    let mut a = base(&svm);
+    a.genesis_ts = T0 + MAX_HORIZON_SECS;
+    assert_ok(&init_err(&a));
+    a.genesis_ts = T0 + MAX_HORIZON_SECS + DAY;
+    assert_custom_err(&init_err(&a), code(E::InvalidGenesis));
+    a.genesis_ts = i64::MAX - i64::MAX % DAY;
+    assert_custom_err(&init_err(&a), code(E::InvalidGenesis));
+}
+
+#[test]
+fn update_still_works_long_after_genesis() {
+    // the cap is checked at init only (genesis is immutable)
+    let mut svm = setup();
+    let (g, _) = new_configured_game(&mut svm);
+    set_time(&mut svm, T0 + 400 * DAY);
+    let ix = ix_update_ad_config(&g.owner.pubkey(), &g.program, None, None, Some(700), None);
+    assert_ok(&send(&mut svm, &[ix], &[&g.owner]));
+}

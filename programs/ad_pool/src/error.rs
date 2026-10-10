@@ -12,7 +12,7 @@ pub enum AdPoolError {
         "epoch_duration_secs must be a positive multiple of 86,400 and <= MAX_EPOCH_DURATION_SECS"
     )]
     InvalidEpochDuration,
-    #[msg("genesis_ts must be a multiple of 86,400 (00:00 UTC)")]
+    #[msg("genesis_ts must be >= 0, a multiple of 86,400 (00:00 UTC) and <= now + 90 days")]
     InvalidGenesis,
     #[msg("auction_close_lead_secs must be >= 7 days")]
     CloseLeadTooShort,
