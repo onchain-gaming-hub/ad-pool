@@ -26,6 +26,18 @@ pub struct Config {
     pub moderator: Pubkey,
     /// Pubkey of `CRANK_KEYPAIR` (W3: no role, fee SOL only — settle / close_auction).
     pub crank: Pubkey,
+    /// OpenAI moderations endpoint (official; e2e may point at a 127.0.0.1 mock).
+    pub openai_url: String,
+    /// Web Risk `uris:search` endpoint (same rule).
+    pub web_risk_url: String,
+    /// Hosts the Worker itself answers on (PUBLIC_BASE_URL + AUTH_DOMAIN) — a click_url or
+    /// redirect hop pointing at them is refused (it would spend the Worker's own quota).
+    pub own_hosts: Vec<String>,
+    /// true when any upstream points at a 127.0.0.1 mock (shown on /health, logged)
+    pub upstream_overridden: bool,
+    /// Subrequests one crank run may spend (CF: Free 50 · Paid 10,000 per invocation —
+    /// developers.cloudflare.com/workers/platform/limits, verified 2026-10-10).
+    pub subrequest_budget: usize,
     /// Origin the Worker serves `GET /ads/<sha256>.<ext>` from; `image_url` on chain =
     /// `<PUBLIC_BASE_URL>/ads/<sha256>.<ext>`. https, no trailing slash.
     pub public_base_url: String,
@@ -73,6 +85,7 @@ pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, Confi
     };
     let max_image_bytes = num("MAX_IMAGE_BYTES", 1_024, MAX_IMAGE_BYTES_CAP)?;
     let max_submissions_per_hour = num("MAX_SUBMISSIONS_PER_HOUR", 1, MAX_SUBMISSIONS_CAP)?;
+    let subrequest_budget = num("SUBREQUEST_BUDGET", 30, 9_000)?;
     let public_base_url = req("PUBLIC_BASE_URL")?;
     let host = public_base_url.strip_prefix("https://").unwrap_or("");
     if host.is_empty()
@@ -92,9 +105,29 @@ pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, Confi
             "CRANK_ADDRESS must differ from MODERATOR_ADDRESS".into(),
         ));
     }
+    let openai_url = upstream(
+        crate::moderation::MODERATIONS_URL,
+        get("OPENAI_MODERATIONS_URL"),
+        "OPENAI_MODERATIONS_URL",
+    )?;
+    let web_risk_url = upstream(
+        crate::webrisk::SEARCH_URL,
+        get("WEB_RISK_SEARCH_URL"),
+        "WEB_RISK_SEARCH_URL",
+    )?;
+    let upstream_overridden = is_local_mock(&openai_url) || is_local_mock(&web_risk_url);
+    let mut own_hosts: Vec<String> = crate::urlcheck::host_of(&public_base_url)
+        .into_iter()
+        .collect();
+    own_hosts.push(auth_domain.to_ascii_lowercase());
     Ok(Config {
         moderator,
         crank,
+        openai_url,
+        web_risk_url,
+        own_hosts,
+        upstream_overridden,
+        subrequest_budget,
         public_base_url,
         auth_domain,
         max_image_bytes,
@@ -109,10 +142,35 @@ pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, Confi
 
 /// The keyed RPC URL must be https (it carries an API key).
 pub fn validate_rpc_url(url: &str) -> Result<(), ConfigError> {
+    if is_local_mock(url) {
+        return Ok(());
+    }
     if !url.starts_with("https://") || url.len() <= "https://".len() {
         return Err(ConfigError("RPC URL must be https://".into()));
     }
     Ok(())
+}
+
+/// e2e only (W5 `tests/e2e.mjs`): an upstream may be replaced by a mock on
+/// `http://127.0.0.1:<port>` — an address a deployed Worker cannot reach, so the override can
+/// never send data off-box. Anything else must be the official URL.
+pub fn is_local_mock(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://127.0.0.1:") else {
+        return false;
+    };
+    let port_len = rest.bytes().take_while(u8::is_ascii_digit).count();
+    (1..=5).contains(&port_len) && matches!(rest.as_bytes().get(port_len), None | Some(b'/'))
+}
+
+/// `official` unless the optional var names a local mock.
+pub fn upstream(official: &str, var: Option<String>, name: &str) -> Result<String, ConfigError> {
+    match var {
+        None => Ok(official.to_string()),
+        Some(v) if v == official || is_local_mock(&v) => Ok(v),
+        Some(_) => Err(ConfigError(format!(
+            "{name} may only be the official URL or a 127.0.0.1 mock"
+        ))),
+    }
 }
 
 /// Secret name of the keyed RPC URL for the cluster.
@@ -149,6 +207,7 @@ mod tests {
                 "DX6bYh6AwfWpBQT8UBevNocYepauHd965RCr1rE6G6Db",
             ),
             ("PUBLIC_BASE_URL", "https://ads.devnet.example"),
+            ("SUBREQUEST_BUDGET", "45"),
             (
                 "CRANK_ADDRESS",
                 "ESgASsgG2Uzh4ccQTga5yXoZnkDCCEociVYYe6Trq3LP",
@@ -220,6 +279,40 @@ mod tests {
             "EXPECTED_GENESIS_HASH",
             "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
         );
+        assert!(from_lookup(|n| v.get(n).map(|s| s.to_string())).is_err());
+    }
+
+    #[test]
+    fn upstream_overrides_only_to_a_local_mock() {
+        for ok in [
+            "http://127.0.0.1:8899",
+            "http://127.0.0.1:8899/v1/moderations",
+            "http://127.0.0.1:1/",
+        ] {
+            assert!(is_local_mock(ok), "{ok}");
+        }
+        for bad in [
+            "http://127.0.0.1",
+            "http://127.0.0.1:/x",
+            "http://127.0.0.1:123456",
+            "http://127.0.0.1:80@evil.example/",
+            "http://127.0.0.1.evil.example:80/",
+            "http://localhost:8899",
+            "https://evil.example/v1/moderations",
+        ] {
+            assert!(!is_local_mock(bad), "{bad}");
+        }
+        assert_eq!(upstream("https://o/x", None, "N").unwrap(), "https://o/x");
+        assert!(upstream("https://o/x", Some("https://evil/x".into()), "N").is_err());
+        assert_eq!(
+            upstream("https://o/x", Some("http://127.0.0.1:9/x".into()), "N").unwrap(),
+            "http://127.0.0.1:9/x"
+        );
+        let v = vars();
+        let c = from_lookup(|n| v.get(n).map(|s| s.to_string())).unwrap();
+        assert_eq!(c.openai_url, crate::moderation::MODERATIONS_URL);
+        let mut v = vars();
+        v.insert("WEB_RISK_SEARCH_URL", "https://attacker.example/");
         assert!(from_lookup(|n| v.get(n).map(|s| s.to_string())).is_err());
     }
 

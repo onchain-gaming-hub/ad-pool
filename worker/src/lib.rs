@@ -48,12 +48,19 @@ mod app {
         rpc::{RpcClient, RpcError, SendOutcome, TxStatus, redact_url},
         submission::{self, Input, Kind, Limits, Prepared},
         tx::{self, Action, flags},
-        urlcheck::{self, Hop},
+        urlcheck::{self, Hop, Recheck, UrlOutcome},
     };
     use solana_signer::Signer;
 
     /// Confirmation polling after `sendTransaction` (1 s apart).
-    const CONFIRM_POLLS: u32 = 20;
+    /// Confirmation polling: few, spaced polls — each is a subrequest (Free plan: 50/invocation).
+    const CONFIRM_POLLS: u32 = 8;
+    const CONFIRM_POLL_INTERVAL_MS: u64 = 2_000;
+    /// No tx is sent after this long under the gate lock (it lives `gate::LOCK_TTL_SECS`):
+    /// leaves room for send + confirm before the lock could expire.
+    const SEND_DEADLINE_SECS: i64 = crate::gate::LOCK_TTL_SECS - 90;
+    /// R2 put / get timeout (gotcha 15: nothing is awaited without a deadline).
+    const R2_TIMEOUT_MS: u64 = 10_000;
     /// Per-hop timeout when following a click_url's redirects.
     const URL_FETCH_TIMEOUT_MS: u64 = 5_000;
     const CONFIRM_POLL_TIMEOUT_MS: u64 = 2_000;
@@ -62,11 +69,16 @@ mod app {
         /// Genesis hash already verified by this isolate (a value, never a future —
         /// Workers forbid sharing I/O across requests).
         static CLUSTER_OK: RefCell<Option<String>> = const { RefCell::new(None) };
+        static OVERRIDE_LOGGED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
     }
 
     fn load(env: &Env) -> Result<config::Config> {
-        config::from_lookup(|n| env.var(n).ok().map(|v| v.to_string()))
-            .map_err(|e| Error::RustError(e.0))
+        let cfg = config::from_lookup(|n| env.var(n).ok().map(|v| v.to_string()))
+            .map_err(|e| Error::RustError(e.0))?;
+        if cfg.upstream_overridden && !OVERRIDE_LOGGED.with(|c| c.replace(true)) {
+            console_error!("⚠️ upstreams overridden to a 127.0.0.1 mock (e2e only)");
+        }
+        Ok(cfg)
     }
 
     fn rpc(env: &Env, cfg: &config::Config) -> Result<RpcClient> {
@@ -276,6 +288,16 @@ mod app {
         }
     }
 
+    /// Races `fut` against a `Delay` (gotcha 15); `None` = the timeout won.
+    async fn with_timeout<F: core::future::Future>(fut: F, ms: u64) -> Option<F::Output> {
+        let f = Box::pin(fut);
+        let t = Box::pin(Delay::from(core::time::Duration::from_millis(ms)));
+        match futures_util::future::select(f, t).await {
+            futures_util::future::Either::Left((out, _)) => Some(out),
+            futures_util::future::Either::Right(_) => None,
+        }
+    }
+
     fn secret_or_empty(env: &Env, name: &str) -> String {
         env.secret(name).map(|s| s.to_string()).unwrap_or_default()
     }
@@ -309,16 +331,23 @@ mod app {
 
     /// Layers 1 + 2 on the submitted (normalized) URL and every redirect hop. Web Risk runs
     /// before each fetch, so a known-bad host is never contacted.
-    async fn url_chain(env: &Env, start: &str, web_risk_key: &str, timeout_ms: u64) -> Check {
-        let Ok(mut current) = urlcheck::layer1(start) else {
-            return Check::fail(flags::URL_LAYER1, "layer1");
+    async fn url_chain(
+        env: &Env,
+        cfg: &config::Config,
+        start: &str,
+        web_risk_key: &str,
+    ) -> UrlOutcome {
+        let mut current = match urlcheck::layer1_excluding(start, &cfg.own_hosts) {
+            Ok(u) => u,
+            Err(r) => return UrlOutcome::Rule(r),
         };
         for _ in 0..=urlcheck::MAX_REDIRECTS {
             match crate::riskcache::lookup_cached(
                 env,
+                &cfg.web_risk_url,
                 web_risk_key,
                 current.as_str(),
-                timeout_ms,
+                cfg.rpc_timeout_ms,
                 now(),
             )
             .await
@@ -330,11 +359,11 @@ mod app {
                         current.host_str().unwrap_or(""),
                         t
                     );
-                    return Check::fail(flags::URL_LAYER2, format!("web_risk:{}", t.join(",")));
+                    return UrlOutcome::Threat(t);
                 }
                 Err(e) => {
                     console_error!("web risk unavailable: {}", e.code());
-                    return Check::Unavailable(format!("web_risk:{}", e.code()));
+                    return UrlOutcome::Unavailable(format!("web_risk:{}", e.code()));
                 }
             }
             let mut init = RequestInit::new();
@@ -342,7 +371,7 @@ mod app {
                 .with_redirect(RequestRedirect::Manual);
             let Ok(req) = Request::new_with_init(current.as_str(), &init) else {
                 // the URL already passed layer 1: this is a Worker fault, not the advertiser's
-                return Check::Unavailable("click_url_request".into());
+                return UrlOutcome::Unavailable("click_url_request".into());
             };
             let fetch = Box::pin(async move { Fetch::Request(req).send().await });
             let timeout = Box::pin(Delay::from(core::time::Duration::from_millis(
@@ -351,16 +380,21 @@ mod app {
             let resp = match futures_util::future::select(fetch, timeout).await {
                 futures_util::future::Either::Left((Ok(r), _)) => r,
                 // cannot see where it leads → cannot approve (fail closed, no reject)
-                _ => return Check::Unavailable("click_url_unreachable".into()),
+                _ => return UrlOutcome::Unavailable("click_url_unreachable".into()),
             };
             let location = resp.headers().get("location").ok().flatten();
-            match urlcheck::next_hop(&current, resp.status_code(), location.as_deref()) {
-                Ok(Hop::Final) => return Check::Pass,
+            match urlcheck::next_hop(
+                &current,
+                resp.status_code(),
+                location.as_deref(),
+                &cfg.own_hosts,
+            ) {
+                Ok(Hop::Final) => return UrlOutcome::Pass,
                 Ok(Hop::Redirect(next)) => current = next,
-                Err(r) => return Check::fail(flags::URL_LAYER1, format!("redirect:{r:?}")),
+                Err(r) => return UrlOutcome::Rule(r),
             }
         }
-        Check::fail(flags::URL_LAYER1, "redirect:TooManyRedirects")
+        UrlOutcome::Rule(urlcheck::UrlReject::TooManyRedirects)
     }
 
     fn details(checks: &[&Check]) -> Vec<String> {
@@ -381,6 +415,7 @@ mod app {
         client: &RpcClient,
         p: &Prepared,
     ) -> (Result<Response>, bool) {
+        let started = now();
         // the signing key first — no paid API call if the Worker cannot act anyway
         let moderator = match tx::keypair_from_base58(&secret_or_empty(env, "MODERATOR_KEYPAIR")) {
             Ok(k) if k.pubkey() == cfg.moderator => k,
@@ -395,6 +430,7 @@ mod app {
         };
         let openai = secret_or_empty(env, "OPENAI_API_KEY");
         let image_call = moderation::call(
+            &cfg.openai_url,
             &openai,
             moderation::image_body(p.image_info.kind, &p.image),
             cfg.rpc_timeout_ms,
@@ -403,8 +439,17 @@ mod app {
             let web_risk = secret_or_empty(env, "WEB_RISK_API_KEY");
             let (i, t, u) = futures_util::future::join3(
                 image_call,
-                moderation::call(&openai, moderation::text_body(&p.text), cfg.rpc_timeout_ms),
-                url_chain(env, &p.click_url_normalized, &web_risk, cfg.rpc_timeout_ms),
+                moderation::call(
+                    &cfg.openai_url,
+                    &openai,
+                    moderation::text_body(&p.text),
+                    cfg.rpc_timeout_ms,
+                ),
+                async {
+                    url_chain(env, cfg, &p.click_url_normalized, &web_risk)
+                        .await
+                        .to_check()
+                },
             )
             .await;
             (
@@ -453,8 +498,11 @@ mod app {
                     content_type: Some(p.image_info.kind.mime().to_string()),
                     ..Default::default()
                 })
-                .execute()
-                .await;
+                .execute();
+            let put = match with_timeout(put, R2_TIMEOUT_MS).await {
+                Some(r) => r.map(|_| ()),
+                None => Err(Error::RustError("r2 put timeout".into())),
+            };
             if let Err(e) = put {
                 console_error!("r2 put {key} failed: {e}");
                 return done(err(503, "storage_unavailable"));
@@ -478,6 +526,13 @@ mod app {
             return done(reject(&r));
         }
 
+        if now() - started > SEND_DEADLINE_SECS {
+            console_error!(
+                "{}: send deadline passed under the lock — not sending",
+                p.auction
+            );
+            return done(err(503, "deadline"));
+        }
         let (blockhash, _) = match client.get_latest_blockhash().await {
             Ok(b) => b,
             Err(e) => return done(rpc_fail(client, &e)),
@@ -550,7 +605,7 @@ mod app {
             timeout_ms: CONFIRM_POLL_TIMEOUT_MS,
         };
         for _ in 0..CONFIRM_POLLS {
-            Delay::from(core::time::Duration::from_millis(1_000)).await;
+            Delay::from(core::time::Duration::from_millis(CONFIRM_POLL_INTERVAL_MS)).await;
             match poller.get_signature_status(&signature).await {
                 Ok(TxStatus::Pending) | Err(_) => continue,
                 Ok(s) => {
@@ -739,6 +794,7 @@ mod app {
         client: &RpcClient,
         p: &defaultad::Prepared,
     ) -> (Result<Response>, bool) {
+        let started = now();
         let Some(moderator) = signer(env, "MODERATOR_KEYPAIR", &cfg.moderator) else {
             return done(err(503, "moderator_unavailable"));
         };
@@ -749,12 +805,22 @@ mod app {
         let ctx = addr;
         let (i, t, u) = futures_util::future::join3(
             moderation::call(
+                &cfg.openai_url,
                 &openai,
                 moderation::image_body(p.image_info.kind, &p.image),
                 cfg.rpc_timeout_ms,
             ),
-            moderation::call(&openai, moderation::text_body(&p.text), cfg.rpc_timeout_ms),
-            url_chain(env, &p.click_url_normalized, &web_risk, cfg.rpc_timeout_ms),
+            moderation::call(
+                &cfg.openai_url,
+                &openai,
+                moderation::text_body(&p.text),
+                cfg.rpc_timeout_ms,
+            ),
+            async {
+                url_chain(env, cfg, &p.click_url_normalized, &web_risk)
+                    .await
+                    .to_check()
+            },
         )
         .await;
         let image = moderation_check(i, "image", flags::IMAGE_MODERATION, &ctx);
@@ -787,15 +853,18 @@ mod app {
             Ok(b) => b,
             Err(e) => return done(Err(e)),
         };
-        if let Err(e) = bucket
+        let put = bucket
             .put(&key, p.image.clone())
             .http_metadata(HttpMetadata {
                 content_type: Some(p.image_info.kind.mime().to_string()),
                 ..Default::default()
             })
-            .execute()
-            .await
-        {
+            .execute();
+        let put = match with_timeout(put, R2_TIMEOUT_MS).await {
+            Some(r) => r.map(|_| ()),
+            None => Err(Error::RustError("r2 put timeout".into())),
+        };
+        if let Err(e) = put {
             console_error!("r2 put {key} failed: {e}");
             return done(err(503, "storage_unavailable"));
         }
@@ -839,6 +908,10 @@ mod app {
             },
             Err(e) => return done(rpc_fail(client, &e)),
         };
+        if now() - started > SEND_DEADLINE_SECS {
+            console_error!("default-ad: send deadline passed under the lock — not sending");
+            return done(err(503, "deadline"));
+        }
         let (wire, signature) = {
             let (blockhash, _) = match client.get_latest_blockhash().await {
                 Ok(b) => b,
@@ -897,7 +970,7 @@ mod app {
         };
         let mut status = TxStatus::Pending;
         for _ in 0..CONFIRM_POLLS {
-            Delay::from(core::time::Duration::from_millis(1_000)).await;
+            Delay::from(core::time::Duration::from_millis(CONFIRM_POLL_INTERVAL_MS)).await;
             match poller.get_signature_status(&signature).await {
                 Ok(TxStatus::Pending) | Err(_) => continue,
                 Ok(s) => {
@@ -940,7 +1013,12 @@ mod app {
         if if_none_match.as_deref() == Some(format!("\"{}\"", &file[..64]).as_str()) {
             return Ok(Response::empty()?.with_status(304));
         }
-        let Some(obj) = env.bucket("ADS")?.get(&key).execute().await? else {
+        let bucket = env.bucket("ADS")?;
+        let get = bucket.get(&key).execute();
+        let Some(got) = with_timeout(get, R2_TIMEOUT_MS).await else {
+            return err(503, "storage_unavailable");
+        };
+        let Some(obj) = got? else {
             return err(404, "not_found");
         };
         let Some(body) = obj.body() else {
@@ -1046,6 +1124,10 @@ mod app {
             }
         }
         let plan = crank::plan(t, &auctions);
+        // subrequest budget per invocation (Free plan: 50 — CF limits, verified 2026-10-10);
+        // cluster check + getProgramAccounts are already spent
+        let mut budget = cfg.subrequest_budget as i64 - 2;
+        let mut budget_deferred = 0;
         for s in &plan.stale {
             console_error!(
                 "STALE {} {:?} overdue {} s",
@@ -1102,18 +1184,26 @@ mod app {
 
         let mut revoked = 0;
         let mut skipped = 0;
+        let mut alerts = 0;
         if !plan.rechecks.is_empty() {
             let web_risk = secret_or_empty(env, "WEB_RISK_API_KEY");
             let moderator = signer(env, "MODERATOR_KEYPAIR", &cfg.moderator);
             for k in &plan.rechecks {
                 let Some(a) = find(k) else { continue };
-                match url_chain(env, &a.creative.click_url, &web_risk, cfg.rpc_timeout_ms).await {
-                    Check::Pass => {}
-                    Check::Unavailable(r) => {
-                        console_error!("recheck {k}: unavailable {r} (no action)")
+                if !crank::take(&mut budget, crank::RECHECK_COST) {
+                    budget_deferred += 1;
+                    continue;
+                }
+                let outcome = url_chain(env, &cfg, &a.creative.click_url, &web_risk).await;
+                match urlcheck::recheck_action(&outcome) {
+                    Recheck::Keep => {}
+                    Recheck::Alert(why) => {
+                        // a broken-but-honest site, or a check that could not run: a human decides
+                        console_error!("RECHECK ALERT {k}: {why} (no revoke)");
+                        alerts += 1;
                     }
-                    Check::Fail { flags, detail } => {
-                        console_error!("recheck {k}: click_url failed {detail:?} → revoke");
+                    Recheck::Revoke { flags, reason } => {
+                        console_error!("recheck {k}: {reason} → revoke");
                         let Some(m) = &moderator else {
                             console_error!("recheck {k}: revoke SKIPPED — no usable moderator key");
                             skipped += 1;
@@ -1124,7 +1214,7 @@ mod app {
                             &cfg.platform_core,
                             &m.pubkey(),
                             k,
-                            &Action::Revoke { flags: flags.get() },
+                            &Action::Revoke { flags },
                         );
                         if send_logged(&client, m, &[ix], &format!("revoke {k}")).await {
                             revoked += 1;
@@ -1134,7 +1224,7 @@ mod app {
             }
         }
         console_log!(
-            "crank run: {} auctions · {} due ({} sent, {} deferred) · {} rechecked · {} revoked · {} revoke skipped · {} stale",
+            "crank run: {} auctions · {} due ({} sent, {} deferred) · {} rechecked · {} revoked · {} revoke skipped · {} alerts · {} over budget · {} stale",
             auctions.len(),
             plan.txs.len() + plan.deferred,
             sent,
@@ -1142,6 +1232,8 @@ mod app {
             plan.rechecks.len(),
             revoked,
             skipped,
+            alerts,
+            budget_deferred,
             plan.stale.len()
         );
         Ok(())
@@ -1164,6 +1256,8 @@ mod app {
                     "cluster": cfg.cluster,
                     "ad_pool": cfg.ad_pool.to_string(),
                     "platform_core": cfg.platform_core.to_string(),
+                    // true only in the e2e harness (upstreams on a 127.0.0.1 mock)
+                    "upstream_overridden": cfg.upstream_overridden,
                 }))
             })
             // ⚠️ before W6 deploy: gate behind a token / edge rule (spends RPC quota)

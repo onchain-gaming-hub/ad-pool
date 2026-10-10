@@ -103,8 +103,10 @@ impl RiskError {
 }
 
 /// Request URL (no key — that is a header).
-pub fn search_url(uri: &str) -> String {
-    let mut u = url::Url::parse(SEARCH_URL).expect("constant URL");
+pub fn search_url(base: &str, uri: &str) -> String {
+    let Ok(mut u) = url::Url::parse(base) else {
+        return String::new();
+    };
     {
         let mut q = u.query_pairs_mut();
         for t in THREAT_TYPES {
@@ -151,6 +153,7 @@ pub fn parse(status: u16, body: &str) -> Result<Vec<String>, RiskError> {
 #[cfg(target_arch = "wasm32")]
 /// `(threat types, expireTime)` — empty types = no match.
 pub async fn lookup(
+    base: &str,
     api_key: &str,
     uri: &str,
     timeout_ms: u64,
@@ -167,7 +170,8 @@ pub async fn lookup(
         .map_err(|_| RiskError::Transport)?;
     let mut init = RequestInit::new();
     init.with_method(Method::Get).with_headers(headers);
-    let req = Request::new_with_init(&search_url(uri), &init).map_err(|_| RiskError::Transport)?;
+    let req =
+        Request::new_with_init(&search_url(base, uri), &init).map_err(|_| RiskError::Transport)?;
     let fetch = Box::pin(async move {
         let mut resp = Fetch::Request(req)
             .send()
@@ -190,7 +194,7 @@ mod tests {
 
     #[test]
     fn url_has_threat_types_and_encoded_uri_but_no_key() {
-        let u = search_url("https://example.com/a?b=1&c=ป");
+        let u = search_url(SEARCH_URL, "https://example.com/a?b=1&c=ป");
         assert!(u.starts_with("https://webrisk.googleapis.com/v1/uris:search?"));
         assert_eq!(u.matches("threatTypes=").count(), 3);
         assert!(u.contains("uri=https%3A%2F%2Fexample.com%2Fa%3Fb%3D1%26c%3D"));

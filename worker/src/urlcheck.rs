@@ -28,6 +28,48 @@ pub enum UrlReject {
     TooManyRedirects,
     /// a 3xx without a usable Location
     BadRedirect,
+    /// points at the Worker's own origin / auth domain (would spend its own quota)
+    SelfHost,
+}
+
+impl UrlReject {
+    /// Re-check policy (W5 review · ⚠️ maintainer to confirm): a live, paid ad is revoked only for
+    /// rules that signal intent to deceive. Rules that a broken-but-honest site can trip
+    /// (missing Location, too many hops, an http:// hop, a port, length) only raise an alert.
+    /// At submission time every rule still rejects.
+    pub fn is_hostile(&self) -> bool {
+        matches!(
+            self,
+            UrlReject::IpHost
+                | UrlReject::ReservedHost
+                | UrlReject::UserInfo
+                | UrlReject::Punycode
+                | UrlReject::Shortener
+                | UrlReject::SelfHost
+        )
+    }
+}
+
+/// Lowercase host of `url` (for the self-host list), if it parses.
+pub fn host_of(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()?
+        .host_str()
+        .map(|h| h.trim_end_matches('.').to_ascii_lowercase())
+}
+
+/// Layer 1 + the hosts the Worker itself serves (`PUBLIC_BASE_URL`, `AUTH_DOMAIN`).
+pub fn layer1_excluding(raw: &str, own_hosts: &[String]) -> Result<Url, UrlReject> {
+    let u = layer1(raw)?;
+    let host = u
+        .host_str()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if own_hosts.iter().any(|h| matches_domain(&host, h)) {
+        return Err(UrlReject::SelfHost);
+    }
+    Ok(u)
 }
 
 /// Exact domain or any subdomain of it.
@@ -139,14 +181,75 @@ pub enum Hop {
 }
 
 /// What a response means for the redirect chain (`redirect: manual`).
-pub fn next_hop(current: &Url, status: u16, location: Option<&str>) -> Result<Hop, UrlReject> {
+pub fn next_hop(
+    current: &Url,
+    status: u16,
+    location: Option<&str>,
+    own_hosts: &[String],
+) -> Result<Hop, UrlReject> {
     if !matches!(status, 301 | 302 | 303 | 307 | 308) {
         return Ok(Hop::Final);
     }
     let loc = location.ok_or(UrlReject::BadRedirect)?;
     let next = current.join(loc).map_err(|_| UrlReject::BadRedirect)?;
     // re-checked by layer 1 (normalizes the same way as a submitted URL)
-    Ok(Hop::Redirect(layer1(next.as_str())?))
+    Ok(Hop::Redirect(layer1_excluding(next.as_str(), own_hosts)?))
+}
+
+/// Result of walking a click_url (layers 1 + 2 on every hop).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UrlOutcome {
+    Pass,
+    /// Web Risk matched (threat types)
+    Threat(Vec<String>),
+    /// a layer-1 rule failed on the URL or a redirect hop
+    Rule(UrlReject),
+    /// could not finish (Web Risk down, unreachable host, …)
+    Unavailable(String),
+}
+
+impl UrlOutcome {
+    /// Submission path: every failure rejects (design §7.5), an incomplete walk retries.
+    pub fn to_check(&self) -> crate::decision::Check {
+        use crate::{decision::Check, tx::flags};
+        match self {
+            UrlOutcome::Pass => Check::Pass,
+            UrlOutcome::Threat(t) => {
+                Check::fail(flags::URL_LAYER2, format!("web_risk:{}", t.join(",")))
+            }
+            UrlOutcome::Rule(r) => Check::fail(flags::URL_LAYER1, format!("click_url:{r:?}")),
+            UrlOutcome::Unavailable(r) => Check::Unavailable(r.clone()),
+        }
+    }
+}
+
+/// What the W3 re-check does with a live ad (see `UrlReject::is_hostile`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Recheck {
+    Keep,
+    Revoke {
+        flags: u32,
+        reason: String,
+    },
+    /// log + count it; a human decides (never revoke a paid ad for an honest breakage)
+    Alert(String),
+}
+
+pub fn recheck_action(o: &UrlOutcome) -> Recheck {
+    use crate::tx::flags;
+    match o {
+        UrlOutcome::Pass => Recheck::Keep,
+        UrlOutcome::Threat(t) => Recheck::Revoke {
+            flags: flags::URL_LAYER2,
+            reason: format!("web_risk:{}", t.join(",")),
+        },
+        UrlOutcome::Rule(r) if r.is_hostile() => Recheck::Revoke {
+            flags: flags::URL_LAYER1,
+            reason: format!("click_url:{r:?}"),
+        },
+        UrlOutcome::Rule(r) => Recheck::Alert(format!("click_url:{r:?}")),
+        UrlOutcome::Unavailable(r) => Recheck::Alert(format!("unavailable:{r}")),
+    }
 }
 
 #[cfg(test)]
@@ -209,29 +312,113 @@ mod tests {
     }
 
     #[test]
+    fn recheck_revokes_only_threats_and_hostile_rules() {
+        use crate::tx::flags;
+        assert_eq!(recheck_action(&UrlOutcome::Pass), Recheck::Keep);
+        assert!(matches!(
+            recheck_action(&UrlOutcome::Threat(vec!["MALWARE".into()])),
+            Recheck::Revoke { flags: f, .. } if f == flags::URL_LAYER2
+        ));
+        assert!(matches!(
+            recheck_action(&UrlOutcome::Rule(UrlReject::Shortener)),
+            Recheck::Revoke { flags: f, .. } if f == flags::URL_LAYER1
+        ));
+        for honest in [
+            UrlReject::BadRedirect,
+            UrlReject::TooManyRedirects,
+            UrlReject::NotHttps,
+        ] {
+            assert!(matches!(
+                recheck_action(&UrlOutcome::Rule(honest)),
+                Recheck::Alert(_)
+            ));
+        }
+        assert!(matches!(
+            recheck_action(&UrlOutcome::Unavailable("x".into())),
+            Recheck::Alert(_)
+        ));
+        // the submission path still rejects every rule
+        assert!(matches!(
+            UrlOutcome::Rule(UrlReject::BadRedirect).to_check(),
+            crate::decision::Check::Fail { .. }
+        ));
+    }
+
+    #[test]
+    fn self_host_and_hostility() {
+        let own = vec![
+            "ads.adpool-worker.com".to_string(),
+            "ad-pool.devnet.local".to_string(),
+        ];
+        assert_eq!(
+            layer1_excluding("https://ads.adpool-worker.com/v1/health/rpc", &own),
+            Err(UrlReject::SelfHost)
+        );
+        assert_eq!(
+            layer1_excluding("https://x.ads.adpool-worker.com/", &own),
+            Err(UrlReject::SelfHost)
+        );
+        assert!(layer1_excluding("https://example.com/", &own).is_ok());
+        let base = layer1("https://example.com/").unwrap();
+        assert_eq!(
+            next_hop(
+                &base,
+                302,
+                Some("https://ads.adpool-worker.com/ads/x.png"),
+                &own
+            ),
+            Err(UrlReject::SelfHost)
+        );
+        assert_eq!(
+            host_of("https://Ads.E2E.example/x").as_deref(),
+            Some("ads.e2e.example")
+        );
+        for r in [
+            UrlReject::IpHost,
+            UrlReject::ReservedHost,
+            UrlReject::UserInfo,
+            UrlReject::Punycode,
+            UrlReject::Shortener,
+            UrlReject::SelfHost,
+        ] {
+            assert!(r.is_hostile(), "{r:?}");
+        }
+        for r in [
+            UrlReject::NotHttps,
+            UrlReject::Port,
+            UrlReject::TooLong,
+            UrlReject::TooManyRedirects,
+            UrlReject::BadRedirect,
+            UrlReject::Unparseable,
+        ] {
+            assert!(!r.is_hostile(), "{r:?}");
+        }
+    }
+
+    #[test]
     fn redirect_hops() {
         let base = layer1("https://example.com/a/b").unwrap();
-        assert_eq!(next_hop(&base, 200, None), Ok(Hop::Final));
+        assert_eq!(next_hop(&base, 200, None, &[]), Ok(Hop::Final));
         assert_eq!(
-            next_hop(&base, 404, Some("https://x.example.org/")),
+            next_hop(&base, 404, Some("https://x.example.org/"), &[]),
             Ok(Hop::Final)
         );
         assert_eq!(
-            next_hop(&base, 302, Some("../c")),
+            next_hop(&base, 302, Some("../c"), &[]),
             Ok(Hop::Redirect(Url::parse("https://example.com/c").unwrap()))
         );
-        assert_eq!(next_hop(&base, 301, None), Err(UrlReject::BadRedirect));
+        assert_eq!(next_hop(&base, 301, None, &[]), Err(UrlReject::BadRedirect));
         // a redirect to a blocked destination fails layer 1
         assert_eq!(
-            next_hop(&base, 307, Some("http://example.com/")),
+            next_hop(&base, 307, Some("http://example.com/"), &[]),
             Err(UrlReject::NotHttps)
         );
         assert_eq!(
-            next_hop(&base, 308, Some("https://10.0.0.1/")),
+            next_hop(&base, 308, Some("https://10.0.0.1/"), &[]),
             Err(UrlReject::IpHost)
         );
         assert_eq!(
-            next_hop(&base, 302, Some("https://bit.ly/z")),
+            next_hop(&base, 302, Some("https://bit.ly/z"), &[]),
             Err(UrlReject::Shortener)
         );
     }

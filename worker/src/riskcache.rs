@@ -81,6 +81,7 @@ mod object {
     /// Threat types for `uri` (empty = no match), from the cache or Web Risk.
     pub async fn lookup_cached(
         env: &Env,
+        base: &str,
         api_key: &str,
         uri: &str,
         timeout_ms: u64,
@@ -100,7 +101,7 @@ mod object {
             console_log!("risk cache hit {}", &key[..12]);
             return Ok(e.threats);
         }
-        let (threats, expire) = webrisk::lookup(api_key, uri, timeout_ms).await?;
+        let (threats, expire) = webrisk::lookup(base, api_key, uri, timeout_ms).await?;
         console_log!(
             "risk cache miss {} → web risk ({} threats)",
             &key[..12],

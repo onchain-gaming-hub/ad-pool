@@ -103,7 +103,12 @@ pub fn parse(response: &str) -> Result<Verdict, ModError> {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn call(api_key: &str, body: String, timeout_ms: u64) -> Result<Verdict, ModError> {
+pub async fn call(
+    url: &str,
+    api_key: &str,
+    body: String,
+    timeout_ms: u64,
+) -> Result<Verdict, ModError> {
     use futures_util::future::{Either, select};
     use worker::{Delay, Fetch, Headers, Method, Request, RequestInit};
 
@@ -121,7 +126,7 @@ pub async fn call(api_key: &str, body: String, timeout_ms: u64) -> Result<Verdic
     init.with_method(Method::Post)
         .with_headers(headers)
         .with_body(Some(body.into()));
-    let req = Request::new_with_init(MODERATIONS_URL, &init).map_err(|_| ModError::Transport)?;
+    let req = Request::new_with_init(url, &init).map_err(|_| ModError::Transport)?;
     let fetch = Box::pin(async move {
         let mut resp = Fetch::Request(req)
             .send()

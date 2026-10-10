@@ -20,6 +20,20 @@ pub const MAX_TXS_PER_RUN: usize = 10;
 pub const MAX_RECHECKS_PER_RUN: usize = 10;
 /// Cron period (wrangler.toml `crons = ["*/10 * * * *"]`) — used to rotate re-checks.
 pub const RUN_PERIOD_SECS: i64 = 600;
+/// Worst-case subrequests of one settle/close tx: GameEntry read + blockhash + send.
+pub const TX_COST: i64 = 3;
+/// Worst-case subrequests of one URL re-check: per hop (cache get + Web Risk + cache put +
+/// fetch) × (redirects + 1), then blockhash + send of a revoke.
+pub const RECHECK_COST: i64 = 4 * (crate::urlcheck::MAX_REDIRECTS as i64 + 1) + 2;
+
+/// Spend `cost` from the per-run subrequest budget, or refuse (the item waits for a later run).
+pub fn take(budget: &mut i64, cost: i64) -> bool {
+    if *budget < cost {
+        return false;
+    }
+    *budget -= cost;
+    true
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Due {
@@ -157,6 +171,21 @@ mod tests {
                 ..Creative::default()
             },
         }
+    }
+
+    #[test]
+    fn budget_is_never_overspent() {
+        // Free plan (50) − cluster check − getProgramAccounts
+        let mut b = 45 - 2;
+        assert!(take(&mut b, RECHECK_COST));
+        assert_eq!(b, 43 - RECHECK_COST);
+        let mut n = 0;
+        while take(&mut b, TX_COST) {
+            n += 1;
+        }
+        assert!((0..TX_COST).contains(&b));
+        assert_eq!(n, (43 - RECHECK_COST) / TX_COST);
+        assert!(!take(&mut b, RECHECK_COST));
     }
 
     #[test]

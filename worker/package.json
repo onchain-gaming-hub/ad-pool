@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "build": "worker-build --release"
+    "build": "worker-build --release",
+    "e2e": "node tests/e2e.mjs"
   },
   "devDependencies": {
     "wrangler": "4.147.0"

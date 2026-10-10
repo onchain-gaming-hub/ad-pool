@@ -240,6 +240,10 @@ pub fn classify_send(status: u16, text: &str) -> SendOutcome {
             return SendOutcome::AlreadyProcessed;
         }
         let code = err.get("code").and_then(Value::as_i64);
+        // internal error: the node may already have forwarded the tx → treat as maybe-sent
+        if code == Some(-32603) {
+            return SendOutcome::Unknown(truncate(msg, 200));
+        }
         return SendOutcome::Rejected {
             reason: truncate(msg, 200),
             http_429: false,
@@ -627,6 +631,12 @@ mod tests {
                 tx_fault: false,
                 ..
             }
+        ));
+        let internal =
+            r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"},"id":1}"#;
+        assert!(matches!(
+            classify_send(200, internal),
+            SendOutcome::Unknown(_)
         ));
         let dup = r#"{"jsonrpc":"2.0","error":{"code":-32002,"message":"This transaction has already been processed"},"id":1}"#;
         assert_eq!(classify_send(200, dup), SendOutcome::AlreadyProcessed);

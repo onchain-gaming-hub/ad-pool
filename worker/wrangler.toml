@@ -33,6 +33,11 @@ PUBLIC_BASE_URL = "https://ad-pool.devnet.local"
 # Pubkey of CRANK_KEYPAIR (must differ from MODERATOR_ADDRESS).
 CRANK_ADDRESS = "ESgASsgG2Uzh4ccQTga5yXoZnkDCCEociVYYe6Trq3LP"
 
+# Subrequests one crank run may spend. Cloudflare: Free 50 · Paid 10,000 per invocation
+# (verified 2026-10-10). 45 is safe on Free; raise (e.g. 900) on a Paid plan.
+# ⚠️ Free also caps CPU at 10 ms per invocation — too little for 1 MB image hashing/base64.
+SUBREQUEST_BUDGET = "45"
+
 # W3 crank: settle / close due auctions + re-check live click_urls.
 [triggers]
 crons = ["*/10 * * * *"]
