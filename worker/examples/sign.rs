@@ -1,5 +1,6 @@
-//! Dev helper: sign a creative submission with a fresh keypair and print curl args.
+//! Dev helper: sign a creative submission and print curl args.
 //!   cargo run -q --example sign -- <image> <game> <epoch> <slot> [text] [click_url]
+//! Signs with a fresh keypair, or with `SIGNER_KEYPAIR=<solana keypair .json>` (devnet smoke).
 use ad_pool_worker::auth::{self, SignedMessage};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
@@ -33,7 +34,13 @@ fn main() {
         nonce,
         expires: now + 300,
     };
-    let kp = Keypair::new();
+    let kp = match std::env::var("SIGNER_KEYPAIR") {
+        Ok(p) => {
+            let bytes: Vec<u8> = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            Keypair::try_from(bytes.as_slice()).unwrap()
+        }
+        Err(_) => Keypair::new(),
+    };
     let text_msg = m.render();
     // prints: signer, signature, nonce, expires (the Worker rebuilds the message itself)
     println!(

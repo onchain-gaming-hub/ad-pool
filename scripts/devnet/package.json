@@ -1,0 +1,9 @@
+{
+  "name": "ad-pool-devnet-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Devnet runbook helpers for ad-pool (P5 setup + smoke). Never point at mainnet.",
+  "dependencies": {
+    "@solana/web3.js": "1.99.0"
+  }
+}

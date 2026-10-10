@@ -1,0 +1,21 @@
+# Devnet-only stand-in "game" for ad-pool smoke tests (P5). Not part of the program
+# workspace. It exists only so platform-core `register_game` has an executable,
+# upgradeable-loader program to point at. Every instruction succeeds and does nothing.
+[package]
+name = "noop_game"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+codegen-units = 1
+
+[workspace]
