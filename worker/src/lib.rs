@@ -8,6 +8,8 @@
 //! - `GET /v1/auction/:game_program/:epoch/:slot` — decoded `AdSlotAuction` + phase
 //! - `POST /v1/creative` — multipart submission from the winning bidder: auth + checks (W1)
 //!   → moderation + URL checks → R2 → approve/reject tx (W2). API: ../specs/designs/04-worker-api-v1.md
+//! - `POST /v1/default-ad` — W4: platform-core Admin submits the default ad of one size
+//!   (same pipeline) → pc `create_default_ad` / `update_default_ad` as Moderator
 //! - `GET /ads/<sha256>.<ext>` — approved image from R2 (content type from the checked kind)
 //! - Cron (W3, `crons` in wrangler.toml): settle / close_auction every due auction (crank key)
 //!   + re-check click_url of live creatives → `revoke_creative` (Moderator key)
@@ -18,6 +20,7 @@ pub mod auth;
 pub mod config;
 pub mod crank;
 pub mod decision;
+pub mod defaultad;
 pub mod gate;
 pub mod image;
 pub mod moderation;
@@ -41,7 +44,7 @@ mod app {
     use crate::{
         accounts, ads, auth, config, crank,
         decision::{self, Check, Outcome, Parts},
-        moderation, pda, phase,
+        defaultad, moderation, pda, phase,
         rpc::{RpcClient, RpcError, SendOutcome, TxStatus, redact_url},
         submission::{self, Input, Kind, Limits, Prepared},
         tx::{self, Action, flags},
@@ -612,6 +615,323 @@ mod app {
         (r, false)
     }
 
+    /// W4 `POST /v1/default-ad` (defaultad.rs). Order: local checks + Admin signature →
+    /// cluster guard → `RoleMember(Admin, signer)` on platform-core (owner-checked) →
+    /// per-size gate (nonce + rate limit + lock) → same moderation + URL layers as a creative →
+    /// R2 → `create_default_ad` / `update_default_ad` under the Worker's Moderator role.
+    async fn post_default_ad(mut req: Request, env: &Env) -> Result<Response> {
+        let cfg = load(env)?;
+        let declared: Option<usize> = req
+            .headers()
+            .get("content-length")?
+            .and_then(|v| v.parse().ok());
+        match declared {
+            Some(n) if n <= cfg.max_image_bytes + 64 * 1024 => {}
+            Some(_) => return err(413, "too_large"),
+            None => return err(411, "length_required"),
+        }
+        let form = match req.form_data().await {
+            Ok(f) => f,
+            Err(_) => return err(400, "multipart_required"),
+        };
+        let input = defaultad::Input {
+            width: field(&form, "width").unwrap_or_default(),
+            height: field(&form, "height").unwrap_or_default(),
+            signer: field(&form, "signer").unwrap_or_default(),
+            nonce: field(&form, "nonce").unwrap_or_default(),
+            expires: field(&form, "expires").unwrap_or_default(),
+            signature: field(&form, "signature").unwrap_or_default(),
+            image: file(&form, "image").await?,
+            text: field(&form, "text"),
+            click_url: field(&form, "click_url"),
+        };
+        let limits = defaultad::Limits {
+            domain: &cfg.auth_domain,
+            cluster: &cfg.cluster,
+            platform_core: &cfg.platform_core,
+            max_image_bytes: cfg.max_image_bytes,
+        };
+        let t = now();
+        let reject_d = |r: &defaultad::Reject| -> Result<Response> {
+            json_status(json!({ "error": "rejected", "reason": r }), r.status())
+        };
+        let p = match defaultad::prevalidate(input, &limits, t) {
+            Ok(p) => p,
+            Err(r) => return reject_d(&r),
+        };
+
+        let client = rpc(env, &cfg)?;
+        if let Err(e) = ensure_cluster(&client, &cfg).await {
+            return rpc_fail(&client, &e);
+        }
+        // Admin only — the RoleMember PDA must exist, be owned by platform-core, and say Admin
+        let admin_role = pda::role_member(&cfg.platform_core, accounts::Role::Admin, &p.signer);
+        match client.get_account_info(&admin_role.to_string()).await {
+            Ok(Some(info)) => {
+                if let Err(e) = accounts::role_member(
+                    &info,
+                    &cfg.platform_core,
+                    accounts::Role::Admin,
+                    &p.signer,
+                ) {
+                    console_error!("default-ad: admin role {admin_role} invalid: {e}");
+                    return reject_d(&defaultad::Reject::NotAdmin);
+                }
+            }
+            Ok(None) => {
+                console_log!("default-ad: {} is not a platform-core Admin", p.signer);
+                return reject_d(&defaultad::Reject::NotAdmin);
+            }
+            Err(e) => return rpc_fail(&client, &e),
+        }
+
+        let gate = env
+            .durable_object("AUCTION_GATE")?
+            .id_from_name(&defaultad::gate_name(p.width, p.height))?
+            .get_stub()?;
+        let body = json!({
+            "nonce": p.message.nonce,
+            "expires": p.message.expires,
+            "now": t,
+            "max_per_window": cfg.max_submissions_per_hour,
+        });
+        let release = json!({ "nonce": p.message.nonce });
+        let mut gate_resp = match gate_call(&gate, "admit", body, cfg.rpc_timeout_ms).await {
+            Some(r) => r,
+            None => {
+                let _ = gate_call(&gate, "release", release, cfg.rpc_timeout_ms).await;
+                return err(503, "gate_unavailable");
+            }
+        };
+        match gate_resp.status_code() {
+            200 => {}
+            code @ (409 | 429) => {
+                let detail: serde_json::Value = gate_resp.json().await.unwrap_or(json!({}));
+                return json_status(json!({ "error": "gate", "reason": detail["error"] }), code);
+            }
+            code => {
+                console_error!("default-ad gate returned {code}");
+                return err(503, "gate_unavailable");
+            }
+        }
+        let (out, hold) = publish_default_ad(env, &cfg, &client, &p).await;
+        if hold {
+            console_log!(
+                "default-ad {}x{}: tx in flight, lock kept until TTL",
+                p.width,
+                p.height
+            );
+            return out;
+        }
+        if gate_call(&gate, "release", release, cfg.rpc_timeout_ms)
+            .await
+            .is_none_or(|r| r.status_code() != 200)
+        {
+            console_error!("default-ad gate release failed (lock expires on its own)");
+        }
+        out
+    }
+
+    /// Runs under the per-size lock. `(response, keep_lock)`.
+    async fn publish_default_ad(
+        env: &Env,
+        cfg: &config::Config,
+        client: &RpcClient,
+        p: &defaultad::Prepared,
+    ) -> (Result<Response>, bool) {
+        let Some(moderator) = signer(env, "MODERATOR_KEYPAIR", &cfg.moderator) else {
+            return done(err(503, "moderator_unavailable"));
+        };
+        let openai = secret_or_empty(env, "OPENAI_API_KEY");
+        let web_risk = secret_or_empty(env, "WEB_RISK_API_KEY");
+        // log label: the DefaultAd address of this size
+        let addr = pda::default_ad(&cfg.platform_core, p.width, p.height);
+        let ctx = addr;
+        let (i, t, u) = futures_util::future::join3(
+            moderation::call(
+                &openai,
+                moderation::image_body(p.image_info.kind, &p.image),
+                cfg.rpc_timeout_ms,
+            ),
+            moderation::call(&openai, moderation::text_body(&p.text), cfg.rpc_timeout_ms),
+            url_chain(env, &p.click_url_normalized, &web_risk, cfg.rpc_timeout_ms),
+        )
+        .await;
+        let image = moderation_check(i, "image", flags::IMAGE_MODERATION, &ctx);
+        let text = moderation_check(t, "text", flags::TEXT_MODERATION, &ctx);
+        match defaultad::decide(&image, &text, &u) {
+            defaultad::Outcome::Publish => {}
+            defaultad::Outcome::Reject { flags, reasons } => {
+                console_log!(
+                    "default-ad {}x{} admin={} rejected flags={flags} {reasons:?}",
+                    p.width,
+                    p.height,
+                    p.signer
+                );
+                return done(json_status(
+                    json!({ "status": "rejected", "flags": flags, "reasons": reasons }),
+                    422,
+                ));
+            }
+            defaultad::Outcome::Retry { unavailable } => {
+                return done(json_status(
+                    json!({ "error": "moderation_unavailable", "unavailable": unavailable }),
+                    503,
+                ));
+            }
+        }
+
+        // R2 before the chain (A1)
+        let key = ads::object_key(&p.image_sha256, p.image_info.kind);
+        let bucket = match env.bucket("ADS") {
+            Ok(b) => b,
+            Err(e) => return done(Err(e)),
+        };
+        if let Err(e) = bucket
+            .put(&key, p.image.clone())
+            .http_metadata(HttpMetadata {
+                content_type: Some(p.image_info.kind.mime().to_string()),
+                ..Default::default()
+            })
+            .execute()
+            .await
+        {
+            console_error!("r2 put {key} failed: {e}");
+            return done(err(503, "storage_unavailable"));
+        }
+
+        let creative = tx::DefaultAdCreative {
+            image_url: ads::image_url(&cfg.public_base_url, &p.image_sha256, p.image_info.kind),
+            image_sha256: p.image_sha256,
+            text: p.text.clone(),
+            click_url: p.click_url_normalized.clone(),
+        };
+        // create the first time, update afterwards
+        let (ix, label, enabled) = match client.get_account_info(&addr.to_string()).await {
+            Ok(None) => (
+                tx::create_default_ad_instruction(
+                    &cfg.platform_core,
+                    &moderator.pubkey(),
+                    p.width,
+                    p.height,
+                    &creative,
+                ),
+                "created",
+                true,
+            ),
+            Ok(Some(info)) => match accounts::default_ad_head(&info, &cfg.platform_core) {
+                Ok(h) if (h.width, h.height) == (p.width, p.height) => (
+                    tx::update_default_ad_instruction(
+                        &cfg.platform_core,
+                        &moderator.pubkey(),
+                        p.width,
+                        p.height,
+                        &creative,
+                    ),
+                    "updated",
+                    // update_default_ad keeps `enabled` as it is (pc) — tell the Admin
+                    h.enabled,
+                ),
+                Ok(_) | Err(_) => {
+                    console_error!("default ad {addr} is not the expected account");
+                    return done(err(502, "bad_default_ad_account"));
+                }
+            },
+            Err(e) => return done(rpc_fail(client, &e)),
+        };
+        let (wire, signature) = {
+            let (blockhash, _) = match client.get_latest_blockhash().await {
+                Ok(b) => b,
+                Err(e) => return done(rpc_fail(client, &e)),
+            };
+            match tx::sign_many(&moderator, &[ix], &blockhash) {
+                Ok(x) => x,
+                Err(e) => {
+                    console_error!("sign: {e}");
+                    return done(err(500, "sign_failed"));
+                }
+            }
+        };
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&wire);
+        console_log!(
+            "default-ad {}x{} admin={} → {label} sig {signature}",
+            p.width,
+            p.height,
+            p.signer
+        );
+        match client.send_transaction(&b64).await {
+            SendOutcome::Accepted(_) | SendOutcome::AlreadyProcessed => {}
+            SendOutcome::Rejected {
+                reason,
+                http_429,
+                tx_fault,
+                custom,
+            } => {
+                console_error!("default-ad send rejected: {reason} custom={custom:?}");
+                if http_429 {
+                    return done(err(503, "rpc_rate_limited"));
+                }
+                if !tx_fault {
+                    return done(err(503, "rpc_unavailable"));
+                }
+                return done(json_status(
+                    json!({ "error": "tx_rejected", "program_error": custom.map(|(_, c)| c) }),
+                    502,
+                ));
+            }
+            SendOutcome::Unknown(why) => {
+                console_error!("default-ad send unknown: {why}");
+                return (
+                    json_status(
+                        json!({ "error": "tx_unknown", "signature": signature }),
+                        502,
+                    ),
+                    true,
+                );
+            }
+        }
+        let poller = RpcClient {
+            url: client.url.clone(),
+            timeout_ms: CONFIRM_POLL_TIMEOUT_MS,
+        };
+        let mut status = TxStatus::Pending;
+        for _ in 0..CONFIRM_POLLS {
+            Delay::from(core::time::Duration::from_millis(1_000)).await;
+            match poller.get_signature_status(&signature).await {
+                Ok(TxStatus::Pending) | Err(_) => continue,
+                Ok(s) => {
+                    status = s;
+                    break;
+                }
+            }
+        }
+        let mut body = json!({
+            "status": label,
+            "signature": signature,
+            "default_ad": addr.to_string(),
+            "enabled": enabled,
+            "width": p.width,
+            "height": p.height,
+            "image_url": creative.image_url,
+            "image_sha256": auth::hex(&p.image_sha256),
+        });
+        match status {
+            TxStatus::Confirmed => done(json_status(body, 200)),
+            TxStatus::Failed { custom, err: e } => {
+                console_error!("default-ad tx {signature} failed: {e}");
+                done(json_status(
+                    json!({ "error": "tx_failed", "signature": signature, "program_error": custom.map(|(_, c)| c) }),
+                    502,
+                ))
+            }
+            TxStatus::Pending => {
+                body["confirmed"] = json!(false);
+                (json_status(body, 202), true)
+            }
+        }
+    }
+
     async fn get_ad(file: &str, if_none_match: Option<String>, env: &Env) -> Result<Response> {
         let Some((key, kind)) = ads::parse_file(file) else {
             return err(404, "not_found");
@@ -893,6 +1213,9 @@ mod app {
                 let file = ctx.param("file").cloned().unwrap_or_default();
                 let inm = req.headers().get("if-none-match").ok().flatten();
                 get_ad(&file, inm, &ctx.env).await
+            })
+            .post_async("/v1/default-ad", |req, ctx| async move {
+                post_default_ad(req, &ctx.env).await
             })
             .post_async("/v1/creative", |req, ctx| async move {
                 post_creative(req, &ctx.env).await

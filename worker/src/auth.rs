@@ -24,6 +24,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
 pub const HEADER: &str = "ad-pool creative submission";
+/// W4: a different first line, so a creative signature can never pass as a default-ad one
+/// (and vice versa) even if every other line matched.
+pub const DEFAULT_AD_HEADER: &str = "ad-pool default ad submission";
 /// A signed message is valid for at most this long (and must not be expired).
 pub const MAX_VALIDITY_SECS: i64 = 600;
 pub const NONCE_HEX_LEN: usize = 32;
@@ -71,6 +74,46 @@ impl SignedMessage {
     }
 }
 
+/// W4 `POST /v1/default-ad` — signed by a platform-core **Admin** wallet (pc Q-A):
+/// ```text
+/// ad-pool default ad submission
+/// domain: <AUTH_DOMAIN>
+/// cluster: devnet
+/// program: <platform-core program id>
+/// width: <u16>
+/// height: <u16>
+/// payload: <sha256 hex — same payload_hash as a full creative>
+/// nonce: <32 lowercase hex chars>
+/// expires: <unix seconds>
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultAdMessage {
+    pub domain: String,
+    pub cluster: String,
+    pub program: Pubkey,
+    pub width: u16,
+    pub height: u16,
+    pub payload: [u8; 32],
+    pub nonce: String,
+    pub expires: i64,
+}
+
+impl DefaultAdMessage {
+    pub fn render(&self) -> String {
+        format!(
+            "{DEFAULT_AD_HEADER}\ndomain: {}\ncluster: {}\nprogram: {}\nwidth: {}\nheight: {}\npayload: {}\nnonce: {}\nexpires: {}",
+            self.domain,
+            self.cluster,
+            self.program,
+            self.width,
+            self.height,
+            hex(&self.payload),
+            self.nonce,
+            self.expires
+        )
+    }
+}
+
 /// sha256 of the creative payload the signature commits to:
 /// `"ad-pool/v1" ‖ image_sha256 ‖ u32le(len text) ‖ text ‖ u32le(len click_url) ‖ click_url`.
 /// Image-only resubmissions (status TextOnly) use empty text/click_url.
@@ -103,19 +146,38 @@ pub fn verify(
     signer: &Pubkey,
     now: i64,
 ) -> Result<(), AuthError> {
-    if !valid_nonce(&msg.nonce) {
+    verify_rendered(
+        &msg.render(),
+        &msg.nonce,
+        msg.expires,
+        signature_b58,
+        signer,
+        now,
+    )
+}
+
+/// Same checks for any Worker-built message text (`SignedMessage` / `DefaultAdMessage`).
+pub fn verify_rendered(
+    rendered: &str,
+    nonce: &str,
+    expires: i64,
+    signature_b58: &str,
+    signer: &Pubkey,
+    now: i64,
+) -> Result<(), AuthError> {
+    if !valid_nonce(nonce) {
         return Err(AuthError::BadNonce);
     }
-    if msg.expires <= now {
+    if expires <= now {
         return Err(AuthError::Expired);
     }
-    if msg.expires > now + MAX_VALIDITY_SECS {
+    if expires > now + MAX_VALIDITY_SECS {
         return Err(AuthError::TooLongValid);
     }
     let sig: Signature = signature_b58
         .parse()
         .map_err(|_| AuthError::BadSignatureEncoding)?;
-    if !sig.verify(signer.as_ref(), msg.render().as_bytes()) {
+    if !sig.verify(signer.as_ref(), rendered.as_bytes()) {
         return Err(AuthError::BadSignature);
     }
     Ok(())

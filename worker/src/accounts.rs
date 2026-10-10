@@ -11,6 +11,8 @@ pub const GAME_AD_CONFIG_DISCRIMINATOR: [u8; 8] = [0x33, 0xf0, 0xfd, 0xc4, 0x2c,
 pub const GAME_ENTRY_DISCRIMINATOR: [u8; 8] = [119, 212, 18, 192, 14, 188, 27, 149];
 pub const PLATFORM_CONFIG_DISCRIMINATOR: [u8; 8] = [160, 78, 128, 0, 248, 83, 230, 160];
 pub const ROLE_MEMBER_DISCRIMINATOR: [u8; 8] = [33, 119, 164, 224, 146, 251, 202, 109];
+pub const DEFAULT_AD_DISCRIMINATOR: [u8; 8] = [177, 107, 27, 171, 160, 136, 208, 57];
+pub const DEFAULT_AD_SIZE: usize = 651;
 
 /// Layout version written in byte 8 of every account (ad-pool and platform-core).
 pub const ACCOUNT_VERSION: u8 = 1;
@@ -443,4 +445,37 @@ mod hex32 {
         }
         s.serialize_str(&out)
     }
+}
+
+/// Fixed head of platform-core `DefaultAd` (pc 01 §7: width @10, height @12, enabled @14 —
+/// nothing after offset 55 has a fixed position). The Worker only needs to know whether the
+/// account for a size exists and is the real one (create vs update).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct DefaultAdHead {
+    pub width: u16,
+    pub height: u16,
+    pub enabled: bool,
+}
+
+pub fn default_ad_head(
+    info: &AccountInfo,
+    platform_core: &Pubkey,
+) -> Result<DefaultAdHead, DecodeError> {
+    owned_by(info, platform_core)?;
+    // 8 + 47 head + 564 creative (max) + 32 reserved — allocated in full at init
+    exact(info, DEFAULT_AD_SIZE)?;
+    let d = &info.data;
+    if d[..8] != DEFAULT_AD_DISCRIMINATOR || d[8] != ACCOUNT_VERSION {
+        return Err(DecodeError::Mismatch);
+    }
+    let enabled = match d[14] {
+        0 => false,
+        1 => true,
+        v => return Err(DecodeError::BadEnum(v)),
+    };
+    Ok(DefaultAdHead {
+        width: u16::from_le_bytes([d[10], d[11]]),
+        height: u16::from_le_bytes([d[12], d[13]]),
+        enabled,
+    })
 }

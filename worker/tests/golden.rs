@@ -787,3 +787,101 @@ fn crank_ixs_match_the_program() {
         tx::sign_many(&crank, &[s, c], &solana_hash::Hash::new_from_array([1; 32])).unwrap();
     assert!(bytes.len() < 1232);
 }
+
+#[test]
+fn default_ad_ixs_match_platform_core() {
+    use ad_pool::platform_core::{client, types};
+    use ad_pool_worker::tx::{self, DefaultAdCreative};
+    use anchor_lang::{InstructionData, ToAccountMetas};
+
+    let pc_id = to_w(&platform_core::ID);
+    let moderator = wk(3);
+    let a = |k: Pubkey| APubkey::new_from_array(k.to_bytes());
+    let role = pda::role_member(&pc_id, w::Role::Moderator, &moderator);
+    let ad = pda::default_ad(&pc_id, 728, 90);
+    let c = DefaultAdCreative {
+        image_url: "https://w.example/ads/x.png".into(),
+        image_sha256: [9; 32],
+        text: "โฆษณาพื้นฐาน".into(),
+        click_url: "https://example.com/".into(),
+    };
+    let pc_creative = || types::AdCreative {
+        image_url: c.image_url.clone(),
+        image_sha256: c.image_sha256,
+        text: c.text.clone(),
+        click_url: c.click_url.clone(),
+    };
+    let metas = |m: Vec<anchor_lang::prelude::AccountMeta>| -> Vec<(Pubkey, bool, bool)> {
+        m.iter()
+            .map(|m| (to_w(&m.pubkey), m.is_signer, m.is_writable))
+            .collect()
+    };
+    let got = |ix: &solana_instruction::Instruction| -> Vec<(Pubkey, bool, bool)> {
+        ix.accounts
+            .iter()
+            .map(|m| (m.pubkey, m.is_signer, m.is_writable))
+            .collect()
+    };
+
+    let create = tx::create_default_ad_instruction(&pc_id, &moderator, 728, 90, &c);
+    assert_eq!(create.program_id, pc_id);
+    assert_eq!(
+        create.data,
+        client::args::CreateDefaultAd {
+            auth_role_kind: types::Role::Moderator,
+            width: 728,
+            height: 90,
+            creative: pc_creative(),
+        }
+        .data()
+    );
+    assert_eq!(
+        got(&create),
+        metas(
+            client::accounts::CreateDefaultAd {
+                signer: a(moderator),
+                auth_role: a(role),
+                default_ad: a(ad),
+                system_program: anchor_lang::system_program::ID,
+            }
+            .to_account_metas(None)
+        )
+    );
+
+    let update = tx::update_default_ad_instruction(&pc_id, &moderator, 728, 90, &c);
+    assert_eq!(
+        update.data,
+        client::args::UpdateDefaultAd {
+            auth_role_kind: types::Role::Moderator,
+            creative: pc_creative(),
+        }
+        .data()
+    );
+    assert_eq!(
+        got(&update),
+        metas(
+            client::accounts::UpdateDefaultAd {
+                signer: a(moderator),
+                auth_role: a(role),
+                default_ad: a(ad),
+            }
+            .to_account_metas(None)
+        )
+    );
+    // DefaultAd PDA + discriminators vs the pc IDL
+    let pc = idl("platform_core");
+    assert_eq!(idl_disc(&pc, "DefaultAd"), w::DEFAULT_AD_DISCRIMINATOR);
+    for (name, d) in [
+        ("create_default_ad", tx::PC_CREATE_DEFAULT_AD_DISCRIMINATOR),
+        ("update_default_ad", tx::PC_UPDATE_DEFAULT_AD_DISCRIMINATOR),
+    ] {
+        let i = pc["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["name"] == name)
+            .unwrap();
+        let want: Vec<u8> = serde_json::from_value(i["discriminator"].clone()).unwrap();
+        assert_eq!(want, d, "{name}");
+    }
+}

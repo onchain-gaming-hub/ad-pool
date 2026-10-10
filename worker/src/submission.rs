@@ -87,7 +87,7 @@ impl Reject {
     }
 }
 
-fn canonical<T: core::str::FromStr + ToString>(s: &str) -> Option<T> {
+pub(crate) fn canonical<T: core::str::FromStr + ToString>(s: &str) -> Option<T> {
     let v: T = s.parse().ok()?;
     (v.to_string() == s).then_some(v)
 }
@@ -107,7 +107,7 @@ fn is_invisible(c: char) -> bool {
 
 /// Same byte rule as the program's `approve_creative` (design §7.1) + no control or
 /// invisible/bidi characters (the FE renders this as plain text next to a game).
-fn check_text(t: &str) -> Result<(), Reject> {
+pub(crate) fn check_text(t: &str) -> Result<(), Reject> {
     if t.is_empty()
         || t.len() > AD_TEXT_MAX_LEN
         || t.chars().any(|c| c.is_control() || is_invisible(c))
@@ -119,7 +119,7 @@ fn check_text(t: &str) -> Result<(), Reject> {
 
 /// Program rule (lowercase https://, non-empty rest, no ASCII whitespace/control) on the
 /// raw input, then layer 1 (urlcheck.rs) → the normalized URL.
-fn check_click_url(u: &str) -> Result<String, Reject> {
+pub(crate) fn check_click_url(u: &str) -> Result<String, Reject> {
     if !u.starts_with("https://")
         || u.len() <= "https://".len()
         || u.len() > AD_CLICK_URL_MAX_LEN

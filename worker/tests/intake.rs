@@ -1056,3 +1056,152 @@ fn prevalidate_applies_url_layer1_and_keeps_signed_and_normalized_forms() {
     let io = submission::prevalidate(c.input(png, None, None), &limits(), NOW).unwrap();
     assert_eq!(io.click_url_normalized, "");
 }
+
+// ------------------------------------------------------------------- W4 default ad
+
+mod default_ad {
+    use super::*;
+    use ad_pool_worker::{
+        auth::DefaultAdMessage,
+        defaultad::{self, Reject as DReject},
+    };
+
+    fn pc_id() -> Pubkey {
+        "AJnPSYsn7J2muHfKztRtpZz5kBP94dWkNZLr9aMhu18G"
+            .parse()
+            .unwrap()
+    }
+    fn limits() -> defaultad::Limits<'static> {
+        let pc: &'static Pubkey = Box::leak(Box::new(pc_id()));
+        defaultad::Limits {
+            domain: DOMAIN,
+            cluster: "devnet",
+            platform_core: pc,
+            max_image_bytes: 1 << 20,
+        }
+    }
+    fn input(
+        kp: &Keypair,
+        img: Vec<u8>,
+        w: u16,
+        h: u16,
+        text: &str,
+        click: &str,
+    ) -> defaultad::Input {
+        let m = DefaultAdMessage {
+            domain: DOMAIN.into(),
+            cluster: "devnet".into(),
+            program: pc_id(),
+            width: w,
+            height: h,
+            payload: auth::payload_hash(&auth::sha256(&img), text, click),
+            nonce: NONCE.into(),
+            expires: NOW + 300,
+        };
+        defaultad::Input {
+            width: w.to_string(),
+            height: h.to_string(),
+            signer: kp.pubkey().to_string(),
+            nonce: NONCE.into(),
+            expires: (NOW + 300).to_string(),
+            signature: kp.sign_message(m.render().as_bytes()).to_string(),
+            image: Some(img),
+            text: Some(text.into()),
+            click_url: Some(click.into()),
+        }
+    }
+
+    #[test]
+    fn happy_path_and_message_template() {
+        let kp = Keypair::new();
+        let p = defaultad::prevalidate(
+            input(
+                &kp,
+                fixture("b728x90.png"),
+                728,
+                90,
+                "โฆษณาพื้นฐาน",
+                "https://Example.com/x",
+            ),
+            &limits(),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!((p.width, p.height, p.signer), (728, 90, kp.pubkey()));
+        assert_eq!(p.click_url_normalized, "https://example.com/x");
+        let r = p.message.render();
+        assert!(r.starts_with("ad-pool default ad submission\ndomain: ad-pool.devnet.local\ncluster: devnet\nprogram: AJnPSYsn7J2muHfKztRtpZz5kBP94dWkNZLr9aMhu18G\nwidth: 728\nheight: 90\npayload: "));
+        assert!(!r.ends_with('\n'));
+    }
+
+    #[test]
+    fn size_must_match_the_requested_slot_and_all_parts_are_required() {
+        let kp = Keypair::new();
+        let img = fixture("b728x90.png");
+        assert!(matches!(
+            defaultad::prevalidate(
+                input(&kp, img.clone(), 300, 250, "t", "https://e.example.org/"),
+                &limits(),
+                NOW
+            ),
+            Err(DReject::Image(ImageError::WrongSize { .. }))
+        ));
+        let mut i = input(&kp, img.clone(), 728, 90, "t", "https://e.example.org/");
+        i.text = None;
+        assert_eq!(
+            defaultad::prevalidate(i, &limits(), NOW).unwrap_err(),
+            DReject::BadField("text")
+        );
+        let mut i = input(&kp, img.clone(), 728, 90, "t", "https://e.example.org/");
+        i.click_url = None;
+        assert_eq!(
+            defaultad::prevalidate(i, &limits(), NOW).unwrap_err(),
+            DReject::BadField("click_url")
+        );
+        assert!(matches!(
+            defaultad::prevalidate(
+                input(&kp, img.clone(), 728, 90, "t", "https://bit.ly/x"),
+                &limits(),
+                NOW
+            ),
+            Err(DReject::ClickUrl(_))
+        ));
+        let mut i = input(&kp, img, 728, 90, "t", "https://e.example.org/");
+        i.width = "0728".into();
+        assert_eq!(
+            defaultad::prevalidate(i, &limits(), NOW).unwrap_err(),
+            DReject::BadField("width")
+        );
+        assert_eq!(DReject::NotAdmin.status(), 403);
+    }
+
+    #[test]
+    fn a_creative_signature_never_passes_as_a_default_ad_one() {
+        // same key, same payload — signed with the creative template
+        let kp = Keypair::new();
+        let img = fixture("b728x90.png");
+        let mut i = input(&kp, img.clone(), 728, 90, "t", "https://e.example.org/");
+        let creative_msg = message(
+            &Pubkey::new_unique(),
+            728,
+            90,
+            auth::payload_hash(&auth::sha256(&img), "t", "https://e.example.org/"),
+            NONCE,
+            NOW + 300,
+        );
+        i.signature = kp
+            .sign_message(creative_msg.render().as_bytes())
+            .to_string();
+        assert_eq!(
+            defaultad::prevalidate(i, &limits(), NOW).unwrap_err(),
+            DReject::Auth(AuthError::BadSignature)
+        );
+        // and a different signer than the one named fails too
+        let mut i = input(&kp, img, 728, 90, "t", "https://e.example.org/");
+        i.signer = Keypair::new().pubkey().to_string();
+        assert_eq!(
+            defaultad::prevalidate(i, &limits(), NOW).unwrap_err(),
+            DReject::Auth(AuthError::BadSignature)
+        );
+    }
+}

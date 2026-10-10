@@ -20,6 +20,9 @@ pub const REJECT_CREATIVE_DISCRIMINATOR: [u8; 8] = [121, 206, 31, 210, 38, 54, 2
 pub const REVOKE_CREATIVE_DISCRIMINATOR: [u8; 8] = [84, 177, 210, 233, 240, 176, 2, 166];
 pub const SETTLE_DISCRIMINATOR: [u8; 8] = [175, 42, 185, 87, 144, 131, 102, 212];
 pub const CLOSE_AUCTION_DISCRIMINATOR: [u8; 8] = [225, 129, 91, 48, 215, 73, 203, 172];
+// platform-core (idls/platform_core.json)
+pub const PC_CREATE_DEFAULT_AD_DISCRIMINATOR: [u8; 8] = [240, 175, 212, 226, 145, 39, 238, 137];
+pub const PC_UPDATE_DEFAULT_AD_DISCRIMINATOR: [u8; 8] = [234, 125, 175, 127, 43, 237, 21, 84];
 
 /// Reason bits for `reject_creative.flags` / `image_reject_flags` / `last_reject_flags`
 /// (design §7.3). The Worker always sends at least one bit (the program accepts 0).
@@ -205,6 +208,73 @@ pub fn sign_many(
     }
     Ok((bytes, signature.to_string()))
 }
+
+/// The full creative of a default ad (pc `AdCreative` — same layout as ad-pool's).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultAdCreative {
+    pub image_url: String,
+    pub image_sha256: [u8; 32],
+    pub text: String,
+    pub click_url: String,
+}
+
+/// W4: platform-core `create_default_ad(auth_role_kind = Moderator, width, height, creative)`.
+/// The Worker always acts under its own Moderator role (pc Q-B) — the Admin only signed the
+/// off-chain message. The Moderator key pays the `DefaultAd` rent.
+pub fn create_default_ad_instruction(
+    platform_core: &Pubkey,
+    moderator: &Pubkey,
+    width: u16,
+    height: u16,
+    c: &DefaultAdCreative,
+) -> Instruction {
+    let mut d = PC_CREATE_DEFAULT_AD_DISCRIMINATOR.to_vec();
+    d.push(Role::Moderator as u8);
+    d.extend_from_slice(&width.to_le_bytes());
+    d.extend_from_slice(&height.to_le_bytes());
+    creative(&mut d, &c.image_url, &c.image_sha256, &c.text, &c.click_url);
+    Instruction::new_with_bytes(
+        *platform_core,
+        &d,
+        vec![
+            AccountMeta::new(*moderator, true),
+            AccountMeta::new_readonly(
+                pda::role_member(platform_core, Role::Moderator, moderator),
+                false,
+            ),
+            AccountMeta::new(pda::default_ad(platform_core, width, height), false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ],
+    )
+}
+
+/// W4: platform-core `update_default_ad(auth_role_kind = Moderator, creative)` on the existing
+/// `DefaultAd` of that size (`signer` is not `mut` in the IDL; as fee payer it is writable).
+pub fn update_default_ad_instruction(
+    platform_core: &Pubkey,
+    moderator: &Pubkey,
+    width: u16,
+    height: u16,
+    c: &DefaultAdCreative,
+) -> Instruction {
+    let mut d = PC_UPDATE_DEFAULT_AD_DISCRIMINATOR.to_vec();
+    d.push(Role::Moderator as u8);
+    creative(&mut d, &c.image_url, &c.image_sha256, &c.text, &c.click_url);
+    Instruction::new_with_bytes(
+        *platform_core,
+        &d,
+        vec![
+            AccountMeta::new_readonly(*moderator, true),
+            AccountMeta::new_readonly(
+                pda::role_member(platform_core, Role::Moderator, moderator),
+                false,
+            ),
+            AccountMeta::new(pda::default_ad(platform_core, width, height), false),
+        ],
+    )
+}
+
+pub const SYSTEM_PROGRAM_ID: Pubkey = Pubkey::from_str_const("11111111111111111111111111111111");
 
 /// `MODERATOR_KEYPAIR` / `CRANK_KEYPAIR` secret: base58 of the 64-byte keypair.
 pub fn keypair_from_base58(s: &str) -> Result<Keypair, String> {

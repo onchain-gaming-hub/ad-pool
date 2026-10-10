@@ -47,3 +47,18 @@ pub fn platform_config(platform_core: &Pubkey) -> Pubkey {
 pub fn treasury(platform_core: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[PC_TREASURY_SEED], platform_core).0
 }
+
+pub const PC_DEFAULT_AD_SEED: &[u8] = b"default_ad";
+
+/// platform-core `DefaultAd` `[b"default_ad", width LE, height LE]` (pc 01 §7).
+pub fn default_ad(platform_core: &Pubkey, width: u16, height: u16) -> Pubkey {
+    Pubkey::find_program_address(
+        &[
+            PC_DEFAULT_AD_SEED,
+            &width.to_le_bytes(),
+            &height.to_le_bytes(),
+        ],
+        platform_core,
+    )
+    .0
+}
