@@ -22,11 +22,20 @@ wasm-bindgen = "0.2"
 sha2 = "0.11"
 solana-signature = { version = "3.6", default-features = false, features = ["std", "verify"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await-macro"] }
-
-[dev-dependencies]
-# Sign test messages natively.
+# W2: build + sign approve/reject txs with the Moderator key (same stack as solana-poc relayer;
+# versions verified on crates.io 2026-10-10).
 solana-keypair = "4.0"
 solana-signer = "4.0"
+solana-instruction = "4.0"
+solana-hash = "4.7"
+solana-message = "5.1"
+solana-transaction = { version = "5.1", features = ["wincode"] }
+wincode = "0.6"
+bs58 = { version = "0.5.1", default-features = false, features = ["alloc"] }
+# W2: click_url layer 1 — WHATWG parsing (IPv4 in decimal/hex forms, IDNA → punycode).
+url = "2.5"
+
+[dev-dependencies]
 # Golden tests: decode bytes produced by the real program types (native only).
 ad_pool = { path = "../programs/ad_pool", features = ["no-entrypoint"] }
 anchor-lang = "1.2.1"

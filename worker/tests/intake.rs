@@ -757,7 +757,9 @@ fn gate_blocks_replay_and_rate_limits_per_window() {
         gate::admit(s.clone(), "n1", NOW + 600, NOW + 1, 2),
         Err(GateError::Replay)
     );
+    let s = gate::release(s, "n1");
     let s = gate::admit(s, "n2", NOW + 600, NOW + 2, 2).unwrap();
+    let s = gate::release(s, "n2");
     assert_eq!(
         gate::admit(s.clone(), "n3", NOW + 600, NOW + 3, 2),
         Err(GateError::RateLimited {
@@ -912,6 +914,34 @@ fn replay_and_rate_limit_have_distinct_errors() {
     let json = serde_json::to_string(&s).unwrap();
     assert!(json.starts_with("{\"nonces\":[["), "{json}");
     assert_eq!(serde_json::from_str::<GateState>(&json).unwrap(), s);
+    // W1-era stored state (no lock fields) still deserializes
+    let old: GateState = serde_json::from_str(r#"{"nonces":[["a",1]],"recent":[1]}"#).unwrap();
+    assert_eq!((old.inflight_nonce.as_str(), old.inflight_until), ("", 0));
+}
+
+#[test]
+fn gate_in_flight_lock() {
+    let s = gate::admit(GateState::default(), "n1", NOW + 600, NOW, 10).unwrap();
+    // a second submission waits — and its nonce is not spent
+    assert_eq!(
+        gate::admit(s.clone(), "n2", NOW + 600, NOW + 5, 10),
+        Err(GateError::InFlight {
+            retry_after_secs: gate::LOCK_TTL_SECS - 5
+        })
+    );
+    assert!(!s.nonces.iter().any(|(n, _)| n == "n2"));
+    assert_eq!(s.recent.len(), 1, "a refused submission does not count");
+    // a stale release (other nonce) does not free the lock
+    let s = gate::release(s, "n0");
+    assert!(matches!(
+        gate::admit(s.clone(), "n2", NOW + 600, NOW + 6, 10),
+        Err(GateError::InFlight { .. })
+    ));
+    // released → next one gets in; or the lock expires on its own
+    let s2 = gate::admit(gate::release(s.clone(), "n1"), "n2", NOW + 600, NOW + 6, 10).unwrap();
+    assert_eq!(s2.inflight_nonce, "n2");
+    let t = NOW + gate::LOCK_TTL_SECS;
+    assert!(gate::admit(s, "n3", t + 600, t, 10).is_ok());
 }
 
 #[test]
@@ -988,4 +1018,41 @@ fn round2_nits_extended_xmp_raw_profile_second_ihdr_canonical_numbers() {
             "{e} {sl}"
         );
     }
+}
+
+#[test]
+fn prevalidate_applies_url_layer1_and_keeps_signed_and_normalized_forms() {
+    use ad_pool_worker::urlcheck::UrlReject;
+    let c = Case::new();
+    let png = fixture("b728x90.png");
+    for (u, want) in [
+        ("https://bit.ly/abc", UrlReject::Shortener),
+        ("https://127.0.0.1/", UrlReject::IpHost),
+        ("https://xn--80ak6aa92e.com/", UrlReject::Punycode),
+        ("https://shop.local/", UrlReject::ReservedHost),
+        ("https://a.example.com:8443/", UrlReject::Port),
+    ] {
+        assert_eq!(
+            submission::prevalidate(c.input(png.clone(), Some("t"), Some(u)), &limits(), NOW)
+                .unwrap_err(),
+            Reject::ClickUrl(want.clone()),
+            "{u}"
+        );
+        assert_eq!(Reject::ClickUrl(want).status(), 400);
+    }
+    // the signature covers the raw string; the chain gets the normalized one
+    let p = submission::prevalidate(
+        c.input(png.clone(), Some("t"), Some("https://Shop.Example.com/ป้าย")),
+        &limits(),
+        NOW,
+    )
+    .unwrap();
+    assert_eq!(p.click_url, "https://Shop.Example.com/ป้าย");
+    assert_eq!(
+        p.click_url_normalized,
+        "https://shop.example.com/%E0%B8%9B%E0%B9%89%E0%B8%B2%E0%B8%A2"
+    );
+    // image-only has no URL
+    let io = submission::prevalidate(c.input(png, None, None), &limits(), NOW).unwrap();
+    assert_eq!(io.click_url_normalized, "");
 }

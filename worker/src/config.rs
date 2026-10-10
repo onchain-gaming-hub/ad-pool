@@ -22,7 +22,15 @@ pub struct Config {
     pub max_image_bytes: usize,
     /// per auction per hour (design §7.3)
     pub max_submissions_per_hour: usize,
+    /// Pubkey the `MODERATOR_KEYPAIR` secret must hold (catches a wrong / rotated secret).
+    pub moderator: Pubkey,
+    /// Origin the Worker serves `GET /ads/<sha256>.<ext>` from; `image_url` on chain =
+    /// `<PUBLIC_BASE_URL>/ads/<sha256>.<ext>`. https, no trailing slash.
+    pub public_base_url: String,
 }
+
+/// `image_url` ≤ 200 bytes on chain: base + "/ads/" + 64 hex + ".webp".
+pub const MAX_PUBLIC_BASE_URL_LEN: usize = 200 - "/ads/".len() - 64 - ".webp".len();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigError(pub String);
@@ -63,7 +71,20 @@ pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, Confi
     };
     let max_image_bytes = num("MAX_IMAGE_BYTES", 1_024, MAX_IMAGE_BYTES_CAP)?;
     let max_submissions_per_hour = num("MAX_SUBMISSIONS_PER_HOUR", 1, MAX_SUBMISSIONS_CAP)?;
+    let public_base_url = req("PUBLIC_BASE_URL")?;
+    let host = public_base_url.strip_prefix("https://").unwrap_or("");
+    if host.is_empty()
+        || public_base_url.len() > MAX_PUBLIC_BASE_URL_LEN
+        || public_base_url.ends_with('/')
+        || !public_base_url.is_ascii()
+        || public_base_url
+            .contains(|c: char| c.is_whitespace() || c.is_control() || c == '?' || c == '#')
+    {
+        return Err(ConfigError("PUBLIC_BASE_URL".into()));
+    }
     Ok(Config {
+        moderator: key("MODERATOR_ADDRESS")?,
+        public_base_url,
         auth_domain,
         max_image_bytes,
         max_submissions_per_hour,
@@ -112,6 +133,11 @@ mod tests {
             ("AUTH_DOMAIN", "ads.devnet.example"),
             ("MAX_IMAGE_BYTES", "1048576"),
             ("MAX_SUBMISSIONS_PER_HOUR", "10"),
+            (
+                "MODERATOR_ADDRESS",
+                "DX6bYh6AwfWpBQT8UBevNocYepauHd965RCr1rE6G6Db",
+            ),
+            ("PUBLIC_BASE_URL", "https://ads.devnet.example"),
         ])
     }
 
@@ -146,6 +172,24 @@ mod tests {
                 "{t}"
             );
         }
+        for b in [
+            "http://ads.example",
+            "https://",
+            "https://ads.example/",
+            "https://a b",
+            "https://x?y",
+        ] {
+            let mut v = vars();
+            v.insert("PUBLIC_BASE_URL", b);
+            assert!(
+                from_lookup(|n| v.get(n).map(|s| s.to_string())).is_err(),
+                "{b}"
+            );
+        }
+        let long = format!("https://{}", "a".repeat(MAX_PUBLIC_BASE_URL_LEN));
+        let mut v = vars();
+        v.insert("PUBLIC_BASE_URL", &long);
+        assert!(from_lookup(|n| v.get(n).map(|s| s.to_string())).is_err());
         // another cluster's hash with a "devnet" label must not pass
         let mut v = vars();
         v.insert(

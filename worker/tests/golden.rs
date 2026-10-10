@@ -634,3 +634,101 @@ fn checked_decoders_require_the_frozen_size() {
         })
     );
 }
+
+#[test]
+fn moderator_ixs_match_the_program() {
+    use ad_pool_worker::tx::{self, Action};
+    use anchor_lang::{InstructionData, ToAccountMetas};
+
+    let (ad_pool_id, pc_id) = (to_w(&ad_pool::ID), to_w(&platform_core::ID));
+    let (moderator, auction) = (wk(3), wk(4));
+    let role = pda::role_member(&pc_id, w::Role::Moderator, &moderator);
+    let sha = [5u8; 32];
+    let creative = |image_url: &str, sha: [u8; 32]| AdCreative {
+        image_url: image_url.into(),
+        image_sha256: sha,
+        text: "โฆษณาทดสอบ".into(),
+        click_url: "https://example.com/ป้าย?a=1".into(),
+    };
+    let cases: Vec<(Action, Vec<u8>)> = vec![
+        (
+            Action::ApproveFull {
+                image_url: "https://ads.example/ads/x.png".into(),
+                image_sha256: sha,
+                text: "โฆษณาทดสอบ".into(),
+                click_url: "https://example.com/ป้าย?a=1".into(),
+            },
+            ad_pool::instruction::ApproveCreative {
+                creative: creative("https://ads.example/ads/x.png", sha),
+                image_reject_flags: 0,
+            }
+            .data(),
+        ),
+        (
+            Action::ApproveTextOnly {
+                text: "โฆษณาทดสอบ".into(),
+                click_url: "https://example.com/ป้าย?a=1".into(),
+                image_reject_flags: 4,
+            },
+            ad_pool::instruction::ApproveCreative {
+                creative: creative("", [0; 32]),
+                image_reject_flags: 4,
+            }
+            .data(),
+        ),
+        (
+            Action::ApproveImage {
+                image_url: "https://ads.example/ads/y.webp".into(),
+                image_sha256: sha,
+            },
+            ad_pool::instruction::ApproveImage {
+                image_url: "https://ads.example/ads/y.webp".into(),
+                image_sha256: sha,
+            }
+            .data(),
+        ),
+        (
+            Action::Reject { flags: 0x30 },
+            ad_pool::instruction::RejectCreative { flags: 0x30 }.data(),
+        ),
+    ];
+    // all moderator ixs share one Accounts struct (`Moderate`)
+    let want_metas = ad_pool::accounts::Moderate {
+        moderator: APubkey::new_from_array(moderator.to_bytes()),
+        moderator_role: APubkey::new_from_array(role.to_bytes()),
+        auction: APubkey::new_from_array(auction.to_bytes()),
+    }
+    .to_account_metas(None);
+
+    for (action, want_data) in cases {
+        let ix = tx::instruction(&ad_pool_id, &pc_id, &moderator, &auction, &action);
+        assert_eq!(ix.data, want_data, "{action:?}");
+        assert_eq!(ix.program_id, ad_pool_id);
+        let got: Vec<(Pubkey, bool, bool)> = ix
+            .accounts
+            .iter()
+            .map(|m| (m.pubkey, m.is_signer, m.is_writable))
+            .collect();
+        let want: Vec<(Pubkey, bool, bool)> = want_metas
+            .iter()
+            .map(|m| (to_w(&m.pubkey), m.is_signer, m.is_writable))
+            .collect();
+        assert_eq!(got, want, "{action:?}");
+    }
+    // discriminators also equal the IDL
+    let ap = idl("ad_pool");
+    for (name, d) in [
+        ("approve_creative", tx::APPROVE_CREATIVE_DISCRIMINATOR),
+        ("approve_image", tx::APPROVE_IMAGE_DISCRIMINATOR),
+        ("reject_creative", tx::REJECT_CREATIVE_DISCRIMINATOR),
+    ] {
+        let i = ap["instructions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["name"] == name)
+            .unwrap();
+        let want: Vec<u8> = serde_json::from_value(i["discriminator"].clone()).unwrap();
+        assert_eq!(want, d, "{name}");
+    }
+}

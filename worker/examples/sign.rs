@@ -36,7 +36,8 @@ fn main() {
     };
     let kp = match std::env::var("SIGNER_KEYPAIR") {
         Ok(p) => {
-            let bytes: Vec<u8> = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            let bytes: Vec<u8> =
+                serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
             Keypair::try_from(bytes.as_slice()).unwrap()
         }
         Err(_) => Keypair::new(),

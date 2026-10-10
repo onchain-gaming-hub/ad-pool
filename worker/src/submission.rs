@@ -9,6 +9,7 @@ use crate::{
     auth::{self, AuthError, SignedMessage},
     image::{self, ImageError, ImageInfo},
     pda, phase,
+    urlcheck::{self, UrlReject},
 };
 
 #[derive(Debug, Clone)]
@@ -48,13 +49,19 @@ pub struct Prepared {
     pub image_info: ImageInfo,
     pub image_sha256: [u8; 32],
     pub text: String,
+    /// exactly as signed (payload hash input)
     pub click_url: String,
+    /// layer-1 normalized form (WHATWG serialization) — what is fetched, checked by Web
+    /// Risk and written on chain. Empty for image-only.
+    pub click_url_normalized: String,
     pub message: SignedMessage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Reject {
     BadField(&'static str),
+    /// layer-1 rule on the submitted URL (redirect hops are judged later, on chain)
+    ClickUrl(UrlReject),
     Image(ImageError),
     Auth(AuthError),
     /// decoded on-chain auction is not the (game, epoch, slot) that was signed
@@ -70,7 +77,7 @@ pub enum Reject {
 impl Reject {
     pub fn status(&self) -> u16 {
         match self {
-            Reject::BadField(_) | Reject::Image(_) => 400,
+            Reject::BadField(_) | Reject::ClickUrl(_) | Reject::Image(_) => 400,
             // derived PDA holds a different auction — a chain/derivation anomaly, not the client
             Reject::AuctionMismatch => 502,
             Reject::Auth(_) => 401,
@@ -110,9 +117,9 @@ fn check_text(t: &str) -> Result<(), Reject> {
     Ok(())
 }
 
-/// Program rule (lowercase https://, non-empty rest, no ASCII whitespace/control) — the
-/// full layer-1 URL check (shorteners, IP hosts, punycode, redirects) is W2.
-fn check_click_url(u: &str) -> Result<(), Reject> {
+/// Program rule (lowercase https://, non-empty rest, no ASCII whitespace/control) on the
+/// raw input, then layer 1 (urlcheck.rs) → the normalized URL.
+fn check_click_url(u: &str) -> Result<String, Reject> {
     if !u.starts_with("https://")
         || u.len() <= "https://".len()
         || u.len() > AD_CLICK_URL_MAX_LEN
@@ -121,7 +128,8 @@ fn check_click_url(u: &str) -> Result<(), Reject> {
     {
         return Err(Reject::BadField("click_url"));
     }
-    Ok(())
+    let n = urlcheck::layer1(u).map_err(Reject::ClickUrl)?;
+    Ok(n.as_str().to_string())
 }
 
 /// Stage 1 — no I/O: fields, image type / byte size / animation, payload hash, signature.
@@ -143,9 +151,10 @@ pub fn prevalidate(input: Input, limits: &Limits, now: i64) -> Result<Prepared, 
     };
     let text = input.text.unwrap_or_default();
     let click_url = input.click_url.unwrap_or_default();
+    let mut click_url_normalized = String::new();
     if kind == Kind::Full {
         check_text(&text)?;
-        check_click_url(&click_url)?;
+        click_url_normalized = check_click_url(&click_url)?;
     }
 
     let image = input.image.ok_or(Reject::BadField("image"))?;
@@ -188,6 +197,7 @@ pub fn prevalidate(input: Input, limits: &Limits, now: i64) -> Result<Prepared, 
         image_sha256,
         text,
         click_url,
+        click_url_normalized,
         message,
     })
 }

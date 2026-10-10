@@ -9,17 +9,24 @@ dependencies = [
  "ad_pool",
  "anchor-lang",
  "base64 0.22.1",
+ "bs58",
  "futures-util",
  "getrandom 0.3.4",
  "getrandom 0.4.3",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "solana-hash",
+ "solana-instruction 4.0.0",
  "solana-keypair",
+ "solana-message",
  "solana-pubkey 4.4.0",
  "solana-signature",
  "solana-signer",
+ "solana-transaction",
+ "url",
  "wasm-bindgen",
+ "wincode",
  "worker",
 ]
 
@@ -1536,6 +1543,8 @@ dependencies = [
  "five8",
  "serde",
  "serde_derive",
+ "solana-sanitize",
+ "wincode",
 ]
 
 [[package]]
@@ -1654,6 +1663,22 @@ dependencies = [
  "solana-pubkey 4.4.0",
  "solana-sdk-ids",
  "solana-system-interface 3.3.0",
+]
+
+[[package]]
+name = "solana-message"
+version = "5.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d18e6a31ede507a917b0a428c29a59ee388c90e765e7d61401ad3cdaa6cd517b"
+dependencies = [
+ "solana-address 2.9.0",
+ "solana-hash",
+ "solana-instruction 4.0.0",
+ "solana-sanitize",
+ "solana-sdk-ids",
+ "solana-short-vec",
+ "solana-transaction-error",
+ "wincode",
 ]
 
 [[package]]
@@ -1799,6 +1824,15 @@ dependencies = [
  "sha2 0.10.9",
  "solana-define-syscall 4.0.1",
  "solana-hash",
+]
+
+[[package]]
+name = "solana-short-vec"
+version = "3.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c75782529cc4521114c1ecd71c7e2cdebd41a6fe9844b5d088fd36ef08c57c36"
+dependencies = [
+ "wincode",
 ]
 
 [[package]]
@@ -1952,6 +1986,26 @@ checksum = "17358d1e9a13e5b9c2264d301102126cf11a47fd394cdf3dec174fe7bc96e1de"
 dependencies = [
  "solana-address 2.9.0",
  "solana-sdk-ids",
+]
+
+[[package]]
+name = "solana-transaction"
+version = "5.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42290144aa921d303c2401f8f4c5c08b0c5dbd8977942cca32320d0ed54cc754"
+dependencies = [
+ "solana-address 2.9.0",
+ "solana-hash",
+ "solana-instruction 4.0.0",
+ "solana-instruction-error 3.1.0",
+ "solana-message",
+ "solana-sanitize",
+ "solana-sdk-ids",
+ "solana-short-vec",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction-error",
+ "wincode",
 ]
 
 [[package]]

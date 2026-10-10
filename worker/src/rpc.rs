@@ -139,6 +139,158 @@ pub fn parse_genesis_hash(response: &str) -> Result<String, RpcError> {
         .ok_or_else(|| RpcError::BadResponse("genesis hash".into()))
 }
 
+pub fn get_latest_blockhash_body(id: u64) -> String {
+    body(
+        id,
+        "getLatestBlockhash",
+        json!([{ "commitment": "confirmed" }]),
+    )
+}
+
+/// `(blockhash, lastValidBlockHeight)`
+pub fn parse_latest_blockhash(response: &str) -> Result<(solana_hash::Hash, u64), RpcError> {
+    let r = result(response)?;
+    let v = r
+        .get("value")
+        .ok_or_else(|| RpcError::BadResponse("no value".into()))?;
+    let hash = v
+        .get("blockhash")
+        .and_then(Value::as_str)
+        .and_then(|h| h.parse().ok())
+        .ok_or_else(|| RpcError::BadResponse("blockhash".into()))?;
+    let height = v
+        .get("lastValidBlockHeight")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::BadResponse("lastValidBlockHeight".into()))?;
+    Ok((hash, height))
+}
+
+/// Preflight stays ON: the program's own checks (status, window, role) reject a stale
+/// decision before it costs a fee.
+pub fn send_transaction_body(id: u64, tx_base64: &str) -> String {
+    body(
+        id,
+        "sendTransaction",
+        json!([tx_base64, { "encoding": "base64", "skipPreflight": false, "preflightCommitment": "confirmed" }]),
+    )
+}
+
+pub fn get_signature_statuses_body(id: u64, signature: &str) -> String {
+    body(
+        id,
+        "getSignatureStatuses",
+        json!([[signature], { "searchTransactionHistory": false }]),
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum SendOutcome {
+    /// the RPC accepted the tx and returned its signature
+    Accepted(String),
+    /// definitely not forwarded (JSON-RPC error / HTTP 4xx). `custom` = preflight
+    /// `InstructionError[i, {Custom: c}]` (the program's error code, e.g. 6012)
+    Rejected {
+        reason: String,
+        http_429: bool,
+        tx_fault: bool,
+        custom: Option<(usize, u32)>,
+    },
+    /// timeout / transport / 5xx / unparseable 200 — it may have been forwarded
+    Unknown(String),
+    AlreadyProcessed,
+}
+
+/// JSON-RPC errors raised by the node rather than by the tx (solana-poc `rpc.rs`).
+const NODE_SIDE_ERROR_CODES: [i64; 3] = [-32603, -32005, -32004];
+
+fn truncate(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+/// `{"InstructionError":[i,{"Custom":c}]}` → `(i, c)`
+pub fn custom_error(err: &Value) -> Option<(usize, u32)> {
+    let ie = err.get("InstructionError")?.as_array()?;
+    let index = usize::try_from(ie.first()?.as_u64()?).ok()?;
+    let code = u32::try_from(ie.get(1)?.get("Custom")?.as_u64()?).ok()?;
+    Some((index, code))
+}
+
+/// Port of `solana-poc/relayer/src/rpc.rs::classify_send`.
+pub fn classify_send(status: u16, text: &str) -> SendOutcome {
+    if (400..500).contains(&status) {
+        return SendOutcome::Rejected {
+            reason: format!("http {status}"),
+            http_429: status == 429,
+            tx_fault: matches!(status, 400 | 413),
+            custom: None,
+        };
+    }
+    if status != 200 {
+        return SendOutcome::Unknown(format!("http {status}"));
+    }
+    let Ok(v) = serde_json::from_str::<Value>(text) else {
+        return SendOutcome::Unknown("unparseable response".into());
+    };
+    if let Some(err) = v.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("rpc error");
+        if msg.contains("already been processed") || msg.contains("AlreadyProcessed") {
+            return SendOutcome::AlreadyProcessed;
+        }
+        let code = err.get("code").and_then(Value::as_i64);
+        return SendOutcome::Rejected {
+            reason: truncate(msg, 200),
+            http_429: false,
+            tx_fault: code.is_some_and(|c| !NODE_SIDE_ERROR_CODES.contains(&c)),
+            custom: err
+                .get("data")
+                .and_then(|d| d.get("err"))
+                .and_then(custom_error),
+        };
+    }
+    match v.get("result").and_then(Value::as_str) {
+        Some(sig) => SendOutcome::Accepted(sig.to_string()),
+        None => SendOutcome::Unknown("missing result".into()),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub enum TxStatus {
+    /// not seen yet, or seen but only `processed`
+    Pending,
+    Confirmed,
+    Failed {
+        custom: Option<(usize, u32)>,
+        err: String,
+    },
+}
+
+pub fn parse_signature_status(response: &str) -> Result<TxStatus, RpcError> {
+    let r = result(response)?;
+    let first = r
+        .get("value")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .ok_or_else(|| RpcError::BadResponse("value".into()))?;
+    if first.is_null() {
+        return Ok(TxStatus::Pending);
+    }
+    if let Some(err) = first.get("err").filter(|e| !e.is_null()) {
+        return Ok(TxStatus::Failed {
+            custom: custom_error(err),
+            err: truncate(&err.to_string(), 200),
+        });
+    }
+    Ok(
+        match first.get("confirmationStatus").and_then(Value::as_str) {
+            Some("confirmed" | "finalized") => TxStatus::Confirmed,
+            _ => TxStatus::Pending,
+        },
+    )
+}
+
 #[cfg(target_arch = "wasm32")]
 pub use client::RpcClient;
 
@@ -154,6 +306,56 @@ mod client {
     }
 
     impl RpcClient {
+        /// `(status, body)` of any HTTP response — `sendTransaction` classifies it itself.
+        async fn post_raw(&self, body: String) -> Result<(u16, String), RpcError> {
+            let headers = Headers::new();
+            headers
+                .set("content-type", "application/json")
+                .map_err(|e| RpcError::Http(e.to_string()))?;
+            let mut init = RequestInit::new();
+            init.with_method(Method::Post)
+                .with_headers(headers)
+                .with_body(Some(body.into()));
+            let req = Request::new_with_init(&self.url, &init)
+                .map_err(|e| RpcError::Http(e.to_string()))?;
+            let fetch = Box::pin(async move {
+                let mut resp = Fetch::Request(req)
+                    .send()
+                    .await
+                    .map_err(|e| RpcError::Http(e.to_string()))?;
+                let status = resp.status_code();
+                let text = resp
+                    .text()
+                    .await
+                    .map_err(|e| RpcError::Http(e.to_string()))?;
+                Ok((status, text))
+            });
+            let timeout = Box::pin(Delay::from(core::time::Duration::from_millis(
+                self.timeout_ms,
+            )));
+            match select(fetch, timeout).await {
+                Either::Left((r, _)) => r,
+                Either::Right(_) => Err(RpcError::Timeout),
+            }
+        }
+
+        pub async fn get_latest_blockhash(&self) -> Result<(solana_hash::Hash, u64), RpcError> {
+            parse_latest_blockhash(&self.post(get_latest_blockhash_body(1)).await?)
+        }
+
+        /// ⚠️ `Unknown` text may hold transport detail with the URL — log only redacted.
+        pub async fn send_transaction(&self, tx_base64: &str) -> SendOutcome {
+            match self.post_raw(send_transaction_body(1, tx_base64)).await {
+                Ok((status, text)) => classify_send(status, &text),
+                Err(RpcError::Timeout) => SendOutcome::Unknown("timeout".into()),
+                Err(_) => SendOutcome::Unknown("transport".into()),
+            }
+        }
+
+        pub async fn get_signature_status(&self, signature: &str) -> Result<TxStatus, RpcError> {
+            parse_signature_status(&self.post(get_signature_statuses_body(1, signature)).await?)
+        }
+
         async fn post(&self, body: String) -> Result<String, RpcError> {
             let headers = Headers::new();
             headers
@@ -286,5 +488,88 @@ mod tests {
             parse_genesis_hash(r).unwrap(),
             "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
         );
+    }
+    #[test]
+    fn parses_blockhash_and_statuses() {
+        let r = r#"{"jsonrpc":"2.0","result":{"context":{"slot":1},"value":{"blockhash":"EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG","lastValidBlockHeight":300}},"id":1}"#;
+        let (h, n) = parse_latest_blockhash(r).unwrap();
+        assert_eq!(
+            (h.to_string().as_str(), n),
+            ("EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", 300)
+        );
+        let st = |v: &str| {
+            parse_signature_status(&format!(
+                r#"{{"jsonrpc":"2.0","result":{{"context":{{"slot":1}},"value":[{v}]}},"id":1}}"#
+            ))
+            .unwrap()
+        };
+        assert_eq!(st("null"), TxStatus::Pending);
+        assert_eq!(
+            st(r#"{"slot":1,"confirmations":0,"err":null,"confirmationStatus":"processed"}"#),
+            TxStatus::Pending
+        );
+        assert_eq!(
+            st(r#"{"slot":1,"confirmations":null,"err":null,"confirmationStatus":"finalized"}"#),
+            TxStatus::Confirmed
+        );
+        assert_eq!(
+            st(r#"{"slot":1,"confirmations":1,"err":null,"confirmationStatus":"confirmed"}"#),
+            TxStatus::Confirmed
+        );
+        assert!(matches!(
+            st(
+                r#"{"slot":1,"err":{"InstructionError":[0,{"Custom":6012}]},"confirmationStatus":"confirmed"}"#
+            ),
+            TxStatus::Failed {
+                custom: Some((0, 6012)),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn classifies_send() {
+        assert_eq!(
+            classify_send(200, r#"{"jsonrpc":"2.0","result":"5sig","id":1}"#),
+            SendOutcome::Accepted("5sig".into())
+        );
+        assert!(matches!(
+            classify_send(429, ""),
+            SendOutcome::Rejected {
+                http_429: true,
+                tx_fault: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_send(400, ""),
+            SendOutcome::Rejected { tx_fault: true, .. }
+        ));
+        assert!(matches!(classify_send(503, ""), SendOutcome::Unknown(_)));
+        assert!(matches!(classify_send(200, "x"), SendOutcome::Unknown(_)));
+        let pre = r#"{"jsonrpc":"2.0","error":{"code":-32002,"message":"Transaction simulation failed: Error processing Instruction 0: custom program error: 0x177c","data":{"err":{"InstructionError":[0,{"Custom":6012}]}}},"id":1}"#;
+        assert_eq!(
+            classify_send(200, pre),
+            SendOutcome::Rejected {
+                reason: "Transaction simulation failed: Error processing Instruction 0: custom program error: 0x177c".into(),
+                http_429: false,
+                tx_fault: true,
+                custom: Some((0, 6012))
+            }
+        );
+        let node =
+            r#"{"jsonrpc":"2.0","error":{"code":-32005,"message":"Node is unhealthy"},"id":1}"#;
+        assert!(matches!(
+            classify_send(200, node),
+            SendOutcome::Rejected {
+                tx_fault: false,
+                ..
+            }
+        ));
+        let dup = r#"{"jsonrpc":"2.0","error":{"code":-32002,"message":"This transaction has already been processed"},"id":1}"#;
+        assert_eq!(classify_send(200, dup), SendOutcome::AlreadyProcessed);
+        let b: Value = serde_json::from_str(&send_transaction_body(1, "AQ==")).unwrap();
+        assert_eq!(b["params"][1]["skipPreflight"], false);
+        assert_eq!(b["params"][1]["encoding"], "base64");
     }
 }
