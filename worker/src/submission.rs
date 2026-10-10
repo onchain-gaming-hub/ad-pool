@@ -80,6 +80,11 @@ impl Reject {
     }
 }
 
+fn canonical<T: core::str::FromStr + ToString>(s: &str) -> Option<T> {
+    let v: T = s.parse().ok()?;
+    (v.to_string() == s).then_some(v)
+}
+
 pub struct Limits<'a> {
     pub domain: &'a str,
     pub cluster: &'a str,
@@ -123,8 +128,9 @@ fn check_click_url(u: &str) -> Result<(), Reject> {
 /// The slot's W×H is only known on chain, so the exact-size check runs in stage 2.
 pub fn prevalidate(input: Input, limits: &Limits, now: i64) -> Result<Prepared, Reject> {
     let game: Pubkey = input.game.parse().map_err(|_| Reject::BadField("game"))?;
-    let epoch: u64 = input.epoch.parse().map_err(|_| Reject::BadField("epoch"))?;
-    let slot: u8 = input.slot.parse().map_err(|_| Reject::BadField("slot"))?;
+    // canonical decimal only (no sign, no leading zeros) — what the signed message shows
+    let epoch: u64 = canonical(&input.epoch).ok_or(Reject::BadField("epoch"))?;
+    let slot: u8 = canonical(&input.slot).ok_or(Reject::BadField("slot"))?;
     let signer: Pubkey = input
         .signer
         .parse()

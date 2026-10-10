@@ -930,3 +930,62 @@ fn rejects_more_invisible_characters_and_maps_auction_mismatch_to_502() {
     }
     assert_eq!(Reject::AuctionMismatch.status(), 502);
 }
+
+#[test]
+fn round2_nits_extended_xmp_raw_profile_second_ihdr_canonical_numbers() {
+    // extended XMP APP1 and GPSDest*
+    let app1 = |prefix: &[u8], x: &[u8]| {
+        let j = fixture("b728x90.jpg");
+        let mut seg = prefix.to_vec();
+        seg.extend_from_slice(x);
+        let mut out = j[..2].to_vec();
+        out.extend_from_slice(&[0xFF, 0xE1]);
+        out.extend_from_slice(&((seg.len() + 2) as u16).to_be_bytes());
+        out.extend(seg);
+        out.extend_from_slice(&j[2..]);
+        out
+    };
+    assert_eq!(
+        image::sniff(&app1(
+            b"http://ns.adobe.com/xmp/extension/\0",
+            b"exif:GPSLatitude"
+        )),
+        Err(ImageError::Exif)
+    );
+    assert_eq!(
+        image::sniff(&app1(
+            b"http://ns.adobe.com/xap/1.0/\0",
+            b"exif:GPSDestLatitude"
+        )),
+        Err(ImageError::Exif)
+    );
+    // ImageMagick raw profile text chunk
+    assert_eq!(
+        image::sniff(&png_with_chunk(b"zTXt", b"Raw profile type exif\0\0xyz")),
+        Err(ImageError::Exif)
+    );
+    // second IHDR
+    let png = fixture("b728x90.png");
+    let ihdr = png[8..33].to_vec();
+    let mut two = png[..33].to_vec();
+    two.extend_from_slice(&ihdr);
+    two.extend_from_slice(&png[33..]);
+    assert_eq!(
+        image::sniff(&two),
+        Err(ImageError::Malformed("png second IHDR"))
+    );
+    // non-canonical epoch / slot
+    let c = Case::new();
+    for (e, sl) in [("007", "0"), ("+7", "0"), ("8", "00"), ("8", "+0")] {
+        let mut i = c.input(fixture("b728x90.png"), Some("t"), Some("https://e.x"));
+        i.epoch = e.into();
+        i.slot = sl.into();
+        assert!(
+            matches!(
+                submission::prevalidate(i, &limits(), NOW).unwrap_err(),
+                Reject::BadField(_)
+            ),
+            "{e} {sl}"
+        );
+    }
+}

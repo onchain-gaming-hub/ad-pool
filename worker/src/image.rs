@@ -60,6 +60,7 @@ pub struct ImageInfo {
 
 const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 const XMP_JPEG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+const XMP_EXT_JPEG: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
 const XMP_PNG: &[u8] = b"XML:com.adobe.xmp\0";
 
 /// `b[o..o+n]`, `None` on overflow or out of bounds (32-bit safe).
@@ -138,7 +139,7 @@ fn check_exif(tiff: &[u8]) -> Result<(), ImageError> {
 /// XMP packet: reject GPS coordinates (Photoshop / Lightroom exports write them).
 fn check_xmp(xmp: &[u8]) -> Result<(), ImageError> {
     let has = |needle: &[u8]| xmp.windows(needle.len()).any(|w| w == needle);
-    if has(b"GPSLatitude") || has(b"GPSLongitude") || has(b"GPSPosition") {
+    if has(b"GPSLatitude") || has(b"GPSLongitude") || has(b"GPSPosition") || has(b"GPSDest") {
         return Err(ImageError::Exif);
     }
     Ok(())
@@ -166,6 +167,11 @@ fn png(b: &[u8]) -> Result<ImageInfo, ImageError> {
             .ok_or(m("png chunk length"))?;
         match kind {
             b"acTL" | b"fcTL" | b"fdAT" => return Err(ImageError::Animated),
+            b"IHDR" if off != 8 => return Err(m("png second IHDR")),
+            // ImageMagick-style hex-encoded EXIF/XMP in text chunks: cannot inspect → fail closed
+            b"tEXt" | b"zTXt" | b"iTXt" if data.starts_with(b"Raw profile type") => {
+                return Err(ImageError::Exif);
+            }
             b"eXIf" => check_exif(data)?,
             b"iTXt" if data.starts_with(XMP_PNG) => {
                 // keyword\0 compression_flag compression_method lang\0 key\0 text
@@ -240,7 +246,7 @@ fn jpeg(b: &[u8]) -> Result<ImageInfo, ImageError> {
         if marker == 0xE1 && seg.starts_with(b"Exif\0\0") {
             check_exif(&seg[6..])?;
         }
-        if marker == 0xE1 && seg.starts_with(XMP_JPEG) {
+        if marker == 0xE1 && (seg.starts_with(XMP_JPEG) || seg.starts_with(XMP_EXT_JPEG)) {
             check_xmp(seg)?;
         }
         if matches!(marker, 0xC0..=0xCF) && !matches!(marker, 0xC4 | 0xC8 | 0xCC) {

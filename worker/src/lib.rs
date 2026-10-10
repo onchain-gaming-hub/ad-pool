@@ -193,7 +193,11 @@ mod app {
             cfg.rpc_timeout_ms,
         )));
         let mut gate_resp = match futures_util::future::select(call, timeout).await {
-            futures_util::future::Either::Left((r, _)) => r?,
+            futures_util::future::Either::Left((Ok(r), _)) => r,
+            futures_util::future::Either::Left((Err(e), _)) => {
+                console_error!("auction gate fetch failed: {e}");
+                return err(503, "gate_unavailable");
+            }
             futures_util::future::Either::Right(_) => return err(503, "gate_unavailable"),
         };
         match gate_resp.status_code() {
