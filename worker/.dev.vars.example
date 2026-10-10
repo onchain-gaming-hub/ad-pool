@@ -1,0 +1,5 @@
+# Copy to .dev.vars (gitignored, chmod 600) for `wrangler dev`. Deployed: `wrangler secret put`.
+# Keyed devnet RPC — public api.devnet.solana.com answers 403 to Workers (CF-Worker header).
+RPC_URL_DEVNET=https://<provider>/<key>
+# Base58 64-byte keypair holding platform-core's Moderator role (W2). Never in wrangler.toml.
+# MODERATOR_KEYPAIR=

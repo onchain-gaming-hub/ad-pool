@@ -1,0 +1,37 @@
+[package]
+name = "ad-pool-worker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "ad-pool moderator Worker (Cloudflare, worker-rs): auth the winning bidder, check + moderate creatives, store in R2, sign approve/reject with the Moderator key"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Standalone crate — NOT part of the Anchor/cargo workspace in ../Cargo.toml.
+[workspace]
+
+[dependencies]
+worker = "=0.8.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+# PDA derivation needs curve25519 (pure Rust → builds for Wasm).
+solana-pubkey = { version = "4.4", features = ["curve25519"] }
+wasm-bindgen = "0.2"
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await-macro"] }
+
+[dev-dependencies]
+# Golden tests: decode bytes produced by the real program types (native only).
+ad_pool = { path = "../programs/ad_pool", features = ["no-entrypoint"] }
+anchor-lang = "1.2.1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+# Pre-provisioned for W2 (solana-keypair → getrandom); see .cargo/config.toml.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

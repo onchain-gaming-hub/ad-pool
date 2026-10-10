@@ -1,0 +1,4 @@
+# Pre-provisioned for W2: solana-keypair pulls getrandom 0.3/0.4, which need an explicit
+# Wasm backend (solana-poc lesson). Nothing in W0 depends on getrandom yet.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

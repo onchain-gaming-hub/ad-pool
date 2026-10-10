@@ -1,0 +1,6 @@
+[toolchain]
+# worker 0.8.7 needs rustc >= 1.91 (solana-poc lesson: pin per repo, don't `rustup update`).
+channel = "1.99.0"
+targets = ["wasm32-unknown-unknown"]
+components = ["clippy", "rustfmt"]
+profile = "minimal"
