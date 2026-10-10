@@ -15,3 +15,17 @@ EXPECTED_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
 AD_POOL_PROGRAM_ID = "6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk"
 PLATFORM_CORE_PROGRAM_ID = "AJnPSYsn7J2muHfKztRtpZz5kBP94dWkNZLr9aMhu18G"
 RPC_TIMEOUT_MS = "10000"
+# `domain:` line of signed submissions (FE must use the same value) — set per environment.
+AUTH_DOMAIN = "ad-pool.devnet.local"
+# Uploaded image cap, bytes (1 KiB..5 MiB).
+MAX_IMAGE_BYTES = "1048576"
+# Per auction per hour (design §7.3).
+MAX_SUBMISSIONS_PER_HOUR = "10"
+
+# One gate per auction: nonce replay protection + submission rate limit.
+[durable_objects]
+bindings = [{ name = "AUCTION_GATE", class_name = "AuctionGate" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AuctionGate"]

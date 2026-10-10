@@ -5,6 +5,9 @@ use solana_pubkey::Pubkey;
 /// devnet genesis hash — hard-coded: the devnet-only rule must not be one editable var away.
 pub const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 pub const MIN_RPC_TIMEOUT_MS: u64 = 1_000;
+/// Uploaded image cap (bytes). OpenAI accepts up to 20 MB; ads are small and fixed-size.
+pub const MAX_IMAGE_BYTES_CAP: usize = 5 * 1024 * 1024;
+pub const MAX_SUBMISSIONS_CAP: usize = 60;
 pub const MAX_RPC_TIMEOUT_MS: u64 = 30_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +17,11 @@ pub struct Config {
     pub ad_pool: Pubkey,
     pub platform_core: Pubkey,
     pub rpc_timeout_ms: u64,
+    /// `domain:` line every signed submission must carry (binds signatures to this site).
+    pub auth_domain: String,
+    pub max_image_bytes: usize,
+    /// per auction per hour (design §7.3)
+    pub max_submissions_per_hour: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +50,23 @@ pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, Confi
     if !(MIN_RPC_TIMEOUT_MS..=MAX_RPC_TIMEOUT_MS).contains(&rpc_timeout_ms) {
         return Err(ConfigError("RPC_TIMEOUT_MS out of range".into()));
     }
+    let auth_domain = req("AUTH_DOMAIN")?;
+    if auth_domain.is_empty() || auth_domain.contains(char::is_whitespace) {
+        return Err(ConfigError("AUTH_DOMAIN".into()));
+    }
+    let num = |n: &str, lo: usize, hi: usize| -> Result<usize, ConfigError> {
+        let v: usize = req(n)?.parse().map_err(|_| ConfigError(n.to_string()))?;
+        if !(lo..=hi).contains(&v) {
+            return Err(ConfigError(format!("{n} out of range")));
+        }
+        Ok(v)
+    };
+    let max_image_bytes = num("MAX_IMAGE_BYTES", 1_024, MAX_IMAGE_BYTES_CAP)?;
+    let max_submissions_per_hour = num("MAX_SUBMISSIONS_PER_HOUR", 1, MAX_SUBMISSIONS_CAP)?;
     Ok(Config {
+        auth_domain,
+        max_image_bytes,
+        max_submissions_per_hour,
         cluster,
         expected_genesis_hash,
         ad_pool: key("AD_POOL_PROGRAM_ID")?,
@@ -85,6 +109,9 @@ mod tests {
                 "AJnPSYsn7J2muHfKztRtpZz5kBP94dWkNZLr9aMhu18G",
             ),
             ("RPC_TIMEOUT_MS", "10000"),
+            ("AUTH_DOMAIN", "ads.devnet.example"),
+            ("MAX_IMAGE_BYTES", "1048576"),
+            ("MAX_SUBMISSIONS_PER_HOUR", "10"),
         ])
     }
 

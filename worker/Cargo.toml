@@ -19,9 +19,14 @@ base64 = "0.22"
 # PDA derivation needs curve25519 (pure Rust → builds for Wasm).
 solana-pubkey = { version = "4.4", features = ["curve25519"] }
 wasm-bindgen = "0.2"
+sha2 = "0.11"
+solana-signature = { version = "3.6", default-features = false, features = ["std", "verify"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await-macro"] }
 
 [dev-dependencies]
+# Sign test messages natively.
+solana-keypair = "4.0"
+solana-signer = "4.0"
 # Golden tests: decode bytes produced by the real program types (native only).
 ad_pool = { path = "../programs/ad_pool", features = ["no-entrypoint"] }
 anchor-lang = "1.2.1"
@@ -30,6 +35,8 @@ anchor-lang = "1.2.1"
 opt-level = "z"
 lto = true
 codegen-units = 1
+# a wrapped length must trap, never silently mis-slice (usize is 32-bit on wasm32)
+overflow-checks = true
 
 # Pre-provisioned for W2 (solana-keypair → getrandom); see .cargo/config.toml.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -1,16 +1,22 @@
-//! ad-pool moderator Worker (W0: scaffold, config, RPC, account decoding).
+//! ad-pool moderator Worker (W0: scaffold, config, RPC, decoding · W1: creative intake).
 //! Plan: ../specs/designs/02-implementation-plan.md §4 · Design: ../specs/designs/01 §7.
 //!
 //! Routes (W0):
 //! - `GET /health` — config + program IDs (no RPC)
 //! - `GET /v1/health/rpc` — RPC reachable and on the expected cluster (genesis hash)
 //! - `GET /v1/auction/:game_program/:epoch/:slot` — decoded `AdSlotAuction` + phase
+//! - `POST /v1/creative` — multipart submission from the winning bidder (W1: auth + checks;
+//!   moderation, R2 write and the on-chain approve come in W2). API: ../specs/designs/04-worker-api-v1.md
 
 pub mod accounts;
+pub mod auth;
 pub mod config;
+pub mod gate;
+pub mod image;
 pub mod pda;
 pub mod phase;
 pub mod rpc;
+pub mod submission;
 
 #[cfg(target_arch = "wasm32")]
 mod app {
@@ -21,8 +27,9 @@ mod app {
     use worker::*;
 
     use crate::{
-        accounts, config, pda, phase,
+        accounts, auth, config, pda, phase,
         rpc::{RpcClient, RpcError, redact_url},
+        submission::{self, Input, Limits},
     };
 
     thread_local! {
@@ -79,6 +86,143 @@ mod app {
         Ok(Response::from_json(&json!({ "error": msg }))?.with_status(status))
     }
 
+    fn reject(r: &submission::Reject) -> Result<Response> {
+        Ok(
+            Response::from_json(&json!({ "error": "rejected", "reason": r }))?
+                .with_status(r.status()),
+        )
+    }
+
+    fn field(form: &FormData, name: &str) -> Option<String> {
+        match form.get(name) {
+            Some(FormEntry::Field(v)) => Some(v),
+            _ => None,
+        }
+    }
+
+    async fn file(form: &FormData, name: &str) -> Result<Option<Vec<u8>>> {
+        match form.get(name) {
+            Some(FormEntry::File(f)) => Ok(Some(f.bytes().await?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// W1 intake. Order: cheap local checks + signature → cluster guard → owner-checked
+    /// auction read → chain checks → per-auction gate (nonce + rate limit).
+    /// ⚠️ before W6: per-IP/per-signer limit in front of the RPC read (any keypair can sign
+    /// its own message and cost one getAccountInfo) · W2: in-flight lock in the gate DO.
+    /// The nonce is spent at admission — a later transient failure means re-signing.
+    async fn post_creative(mut req: Request, env: &Env) -> Result<Response> {
+        let cfg = load(env)?;
+        // refuse oversized bodies before reading them (multipart overhead allowance 64 KiB)
+        let declared: Option<usize> = req
+            .headers()
+            .get("content-length")?
+            .and_then(|v| v.parse().ok());
+        match declared {
+            Some(n) if n <= cfg.max_image_bytes + 64 * 1024 => {}
+            Some(_) => return err(413, "too_large"),
+            None => return err(411, "length_required"),
+        }
+        let form = match req.form_data().await {
+            Ok(f) => f,
+            Err(_) => return err(400, "multipart_required"),
+        };
+        let input = Input {
+            game: field(&form, "game").unwrap_or_default(),
+            epoch: field(&form, "epoch").unwrap_or_default(),
+            slot: field(&form, "slot").unwrap_or_default(),
+            signer: field(&form, "signer").unwrap_or_default(),
+            nonce: field(&form, "nonce").unwrap_or_default(),
+            expires: field(&form, "expires").unwrap_or_default(),
+            signature: field(&form, "signature").unwrap_or_default(),
+            image: file(&form, "image").await?,
+            text: field(&form, "text"),
+            click_url: field(&form, "click_url"),
+        };
+        let limits = Limits {
+            domain: &cfg.auth_domain,
+            cluster: &cfg.cluster,
+            ad_pool: &cfg.ad_pool,
+            max_image_bytes: cfg.max_image_bytes,
+        };
+        let t = now();
+        let prepared = match submission::prevalidate(input, &limits, t) {
+            Ok(p) => p,
+            Err(r) => return reject(&r),
+        };
+
+        let client = rpc(env, &cfg)?;
+        if let Err(e) = ensure_cluster(&client, &cfg).await {
+            return rpc_fail(&client, &e);
+        }
+        let info = match client.get_account_info(&prepared.auction.to_string()).await {
+            Ok(Some(i)) => i,
+            Ok(None) => return err(404, "no_auction"),
+            Err(e) => return rpc_fail(&client, &e),
+        };
+        let auction = match accounts::ad_slot_auction(&info, &cfg.ad_pool) {
+            Ok(a) => a,
+            Err(e) => {
+                console_error!("auction {} undecodable: {e}", prepared.auction);
+                return err(502, "bad_auction_account");
+            }
+        };
+        if let Err(r) = submission::against_auction(&prepared, &auction, t) {
+            return reject(&r);
+        }
+
+        // nonce + rate limit, serialized per auction
+        let gate = env
+            .durable_object("AUCTION_GATE")?
+            .id_from_name(&prepared.auction.to_string())?
+            .get_stub()?;
+        let body = json!({
+            "nonce": prepared.message.nonce,
+            "expires": prepared.message.expires,
+            "now": t,
+            "max_per_window": cfg.max_submissions_per_hour,
+        });
+        let mut init = RequestInit::new();
+        init.with_method(Method::Post)
+            .with_body(Some(body.to_string().into()));
+        // race the DO call like every fetch (gotcha 15)
+        let call =
+            Box::pin(gate.fetch_with_request(Request::new_with_init("https://gate/admit", &init)?));
+        let timeout = Box::pin(Delay::from(core::time::Duration::from_millis(
+            cfg.rpc_timeout_ms,
+        )));
+        let mut gate_resp = match futures_util::future::select(call, timeout).await {
+            futures_util::future::Either::Left((r, _)) => r?,
+            futures_util::future::Either::Right(_) => return err(503, "gate_unavailable"),
+        };
+        match gate_resp.status_code() {
+            200 => {}
+            code @ (409 | 429) => {
+                let detail: serde_json::Value = gate_resp.json().await.unwrap_or(json!({}));
+                return Ok(Response::from_json(
+                    &json!({ "error": "gate", "reason": detail["error"] }),
+                )?
+                .with_status(code));
+            }
+            code => {
+                console_error!("auction gate returned {code}");
+                return err(503, "gate_unavailable");
+            }
+        }
+
+        // W2 continues here: moderation → R2 → approve/reject tx.
+        Response::from_json(&json!({
+            "status": "pending_moderation",
+            "kind": prepared.kind,
+            "auction": prepared.auction.to_string(),
+            "image_sha256": auth::hex(&prepared.image_sha256),
+            "image_type": prepared.image_info.kind,
+            "payload": auth::hex(&prepared.message.payload),
+        }))
+        .map(|r| r.with_status(202))
+    }
+
     #[event(fetch)]
     async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         Router::new()
@@ -133,6 +277,9 @@ mod app {
                     })),
                     Err(e) => err(502, &format!("bad auction account: {e}")),
                 }
+            })
+            .post_async("/v1/creative", |req, ctx| async move {
+                post_creative(req, &ctx.env).await
             })
             .run(req, env)
             .await

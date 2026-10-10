@@ -1,0 +1,20 @@
+[package]
+name = "ad-pool-image-fuzz-wasm"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "TEST ONLY: runs worker/src/image.rs as wasm32 (32-bit usize) under node — native fuzz cannot see 32-bit wraps"
+
+[lib]
+crate-type = ["cdylib"]
+
+# standalone (not part of the worker crate)
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = "z"
+# keep overflow checks on: a wrap must trap here, not pass silently
+overflow-checks = true
