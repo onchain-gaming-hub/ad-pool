@@ -5,7 +5,7 @@ description: How to connect a frontend to blockchain-games-hub ad-pool — show 
 
 # ad-pool — Frontend Integration Guide
 
-> Source: `blockchain-games-hub/ad-pool/SKILL.md` · maintainer: maintainer · version 2026-10-11 (program IDL 0.1.0 · Worker API v1)
+> Source: `blockchain-games-hub/ad-pool/SKILL.md` · maintained by the blockchain-games-hub maintainers · version 2026-10-11 (program IDL 0.1.0 · Worker API v1)
 > Deeper references: design `specs/designs/01-program-design-v1.md` · Worker API `specs/designs/04-worker-api-v1.md` · devnet `specs/deploy/devnet-runbook.md` · working examples `scripts/devnet/smoke.ts` (bids that landed on devnet) · `worker/tests/e2e.mjs` (a Worker client written from doc 04)
 > **devnet only** for now · `<WORKER_URL>` = origin of the moderator Worker and `<AUTH_DOMAIN>` = that Worker's `AUTH_DOMAIN` value (ask the platform maintainer)
 
