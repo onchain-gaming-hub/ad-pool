@@ -1,5 +1,19 @@
-# Copy to .dev.vars (gitignored, chmod 600) for `wrangler dev`. Deployed: `wrangler secret put`.
-# Keyed devnet RPC — public api.devnet.solana.com answers 403 to Workers (CF-Worker header).
+# Copy to .dev.vars (gitignored, chmod 600) for `wrangler dev`. Deployed: `wrangler secret put <NAME>`.
+# Never put any of these in wrangler.toml.
+
+# Keyed devnet RPC — the public api.devnet.solana.com answers 403 to Workers (CF-Worker header).
 RPC_URL_DEVNET=https://<provider>/<key>
-# Base58 64-byte keypair holding platform-core's Moderator role (W2). Never in wrangler.toml.
-# MODERATOR_KEYPAIR=
+
+# OpenAI API key (omni-moderation-latest: image + text moderation).
+OPENAI_API_KEY=
+
+# Google Web Risk API key (Lookup API `uris:search`) — the GCP project needs billing enabled.
+WEB_RISK_API_KEY=
+
+# Base58 64-byte keypair holding platform-core's Moderator role; its pubkey must equal
+# MODERATOR_ADDRESS in wrangler.toml. Signs approve / reject / revoke and default ads.
+MODERATOR_KEYPAIR=
+
+# Base58 64-byte keypair with NO role, only SOL for fees; pubkey = CRANK_ADDRESS.
+# Signs the permissionless settle / close_auction crank. Must differ from the moderator key.
+CRANK_KEYPAIR=
