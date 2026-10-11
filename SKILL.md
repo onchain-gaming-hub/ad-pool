@@ -3,39 +3,39 @@ name: ad-pool-integration
 description: How to connect a frontend to blockchain-games-hub ad-pool — show the right ad in a game (read GameAdConfig / AdSlotAuction / DefaultAd, verify the image hash, fall back to text or the platform default ad), let advertisers bid with SOL from an external wallet (open_auction / bid), submit a creative to the moderator Worker (signed message + multipart), and configure a game's ad slots as its owner. Use when building or reviewing any FE, SDK or script that reads or writes ad-pool accounts or calls the ad-pool Worker.
 ---
 
-# ad-pool — คู่มือต่อ Frontend
+# ad-pool — Frontend Integration Guide
 
-> ต้นฉบับ: `blockchain-games-hub/ad-pool/SKILL.md` · ผู้ดูแล: maintainer · ฉบับ 2026-10-11 (program IDL 0.1.0 · Worker API v1)
-> อ้างอิงลึก: design `specs/designs/01-program-design-v1.md` · Worker API `specs/designs/04-worker-api-v1.md` · devnet `specs/deploy/devnet-runbook.md` · ตัวอย่างที่รันจริง `scripts/devnet/smoke.ts` (bid บน devnet) · `worker/tests/e2e.mjs` (client ของ Worker เขียนจาก doc 04)
-> **devnet เท่านั้น** ตอนนี้ · `<WORKER_URL>` = origin ของ moderator Worker และ `<AUTH_DOMAIN>` = ค่า `AUTH_DOMAIN` ของ Worker นั้น (ขอจากผู้ดูแล platform)
+> Source: `blockchain-games-hub/ad-pool/SKILL.md` · maintainer: maintainer · version 2026-10-11 (program IDL 0.1.0 · Worker API v1)
+> Deeper references: design `specs/designs/01-program-design-v1.md` · Worker API `specs/designs/04-worker-api-v1.md` · devnet `specs/deploy/devnet-runbook.md` · working examples `scripts/devnet/smoke.ts` (bids that landed on devnet) · `worker/tests/e2e.mjs` (a Worker client written from doc 04)
+> **devnet only** for now · `<WORKER_URL>` = origin of the moderator Worker and `<AUTH_DOMAIN>` = that Worker's `AUTH_DOMAIN` value (ask the platform maintainer)
 
-## 0. ภาพรวม 30 วินาที
+## 0. Overview in 30 seconds
 
-- แต่ละเกมขาย **ช่องโฆษณา** (W×H ตายตัว) เป็นรอบ **epoch** (หน่วยวัน) · ประมูลด้วย **SOL** ต่อ (เกม, epoch, ช่อง)
-- คนชนะส่ง **ภาพ + ข้อความ + click_url** ให้ **Worker (moderator)** → Worker ตรวจ (ไฟล์, AI moderation, URL) แล้ว **เขียนผลลง chain เอง** · FE **ไม่ต้อง** เชื่อ Worker — chain คือความจริง
-- FE ของเกม **อ่าน account ตรงๆ** (ไม่มี CPI, ไม่ต้องมี backend) · ภาพ pin ด้วย `image_sha256` บน chain
-- เงิน: ผู้ชนะจ่ายเต็ม (ไม่คืนแม้โฆษณาไม่ผ่าน — D4) · หลัง epoch เริ่ม 99% → เจ้าของเกม · 1% → Treasury ของ platform (`ad_fee_bps` snapshot ตอน bid แรก)
-- ผู้ลงโฆษณาใช้ **External Wallet เท่านั้น** (Phantom, Solflare …) จ่าย gas + rent เอง — **ไม่มี ix ไหนผ่าน relayer** (A16)
+- Each game sells **ad slots** (fixed W×H) per **epoch** (unit: days) · auctions are in **SOL**, one per (game, epoch, slot)
+- The winner submits **image + text + click_url** to the **Worker (moderator)** → the Worker checks them (file, AI moderation, URL) and **writes the result on chain itself** · the FE does **not** need to trust the Worker — the chain is the source of truth
+- Game FEs **read accounts directly** (no CPI, no backend) · the image is pinned by `image_sha256` on chain
+- Money: the winner pays in full (no refund even if the ad never passes — decision D4) · after the epoch starts, 99% → game owner · 1% → platform Treasury (`ad_fee_bps` snapshotted at the first bid)
+- Advertisers use **External Wallets only** (Phantom, Solflare …) and pay their own gas + rent — **no ad-pool instruction goes through the relayer** (A16)
 
 | | devnet |
 |---|---|
 | ad-pool program | `6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk` |
 | platform-core program | `AJnPSYsn7J2muHfKztRtpZz5kBP94dWkNZLr9aMhu18G` |
-| IDL | `ad-pool/idls/ad_pool.json` (+ `platform_core.json` สำหรับ `DefaultAd`) |
-| เกมทดสอบ | `noop_game` `8pqRixeRTuSBUNit1d73oPwX7kneMtcKBKBCgKSvxod4` (ช่อง 0 = 728×90, ช่อง 1 = 300×250 · epoch 1 วัน) |
+| IDL | `ad-pool/idls/ad_pool.json` (+ `platform_core.json` for `DefaultAd`) |
+| Test game | `noop_game` `8pqRixeRTuSBUNit1d73oPwX7kneMtcKBKBCgKSvxod4` (slot 0 = 728×90, slot 1 = 300×250 · 1-day epochs) |
 | Worker (`<WORKER_URL>`) | `POST /v1/creative` · `POST /v1/default-ad` · `GET /ads/<sha>.<ext>` |
 
-## 1. ใครใช้ส่วนไหน
+## 1. Who uses what
 
-| ผู้ใช้ | ทำอะไร | หัวข้อ |
+| User | Does | Sections |
 |---|---|---|
-| **FE ของเกม** (ทุกเกม) | แสดงโฆษณาในช่อง — อ่านอย่างเดียว | §3, §4 |
-| **FE ผู้ลงโฆษณา** | ดูช่อง/ราคา · bid · ส่ง creative · ส่งภาพใหม่ | §3, §5, §6 |
-| **เจ้าของเกม** (`GameEntry.owner` ใน platform-core) | สร้าง/แก้ config ช่องโฆษณา | §7 |
-| Admin ของ platform | โฆษณาพื้นฐาน (`DefaultAd`) ผ่าน Worker | §8 |
-| ไม่มีใคร (อัตโนมัติ) | settle / close — Worker crank ทุก 10 นาที | §9 |
+| **Game FE** (every game) | Shows ads in its slots — read-only | §3, §4 |
+| **Advertiser FE** | Browses slots/prices · bids · submits a creative · resubmits an image | §3, §5, §6 |
+| **Game owner** (`GameEntry.owner` in platform-core) | Creates/updates the ad slot config | §7 |
+| Platform Admin | Default ads (`DefaultAd`) via the Worker | §8 |
+| Nobody (automatic) | settle / close — Worker crank every 10 minutes | §9 |
 
-## 2. PDA (TypeScript · `@solana/web3.js` 1.x)
+## 2. PDAs (TypeScript · `@solana/web3.js` 1.x)
 
 ```ts
 import { PublicKey } from '@solana/web3.js';
@@ -53,51 +53,51 @@ export const gameEntry = (game: PublicKey) => pda(PLATFORM_CORE, Buffer.from('ga
 export const pcConfig  = () => pda(PLATFORM_CORE, Buffer.from('config'));
 export const defaultAd = (w: number, h: number) => pda(PLATFORM_CORE, Buffer.from('default_ad'), u16(w), u16(h));
 ```
-- `game` = **program ID ของเกม** (ไม่ใช่ชื่อ · ไม่ใช่ wallet เจ้าของ)
-- `epoch` เป็น **u64 little-endian** · `slot` เป็น **u8** — ผิดชนิด = ได้ address อื่นเงียบๆ
+- `game` = **the game's program ID** (not its name · not the owner's wallet)
+- `epoch` is **u64 little-endian** · `slot` is **u8** — a wrong type silently yields a different address
 
-## 3. Account ที่ FE อ่าน (offset ตายตัว — decode เองได้โดยไม่ต้องใช้ Anchor)
+## 3. Accounts the FE reads (fixed offsets — decodable without Anchor)
 
-> ทุก account: **ตรวจ `owner` ของ account = program ที่ถูก + ตรวจขนาด + discriminator ก่อนเชื่อ data** (ไม่งั้นใครก็ส่ง account ปลอมที่หน้าตาเหมือนกันมาได้) · discriminator อยู่ใน IDL (`accounts[].discriminator`)
+> For every account: **check that the account's `owner` is the right program, its size, and its discriminator before trusting the data** (otherwise anyone can pass a look-alike fake account) · discriminators are in the IDL (`accounts[].discriminator`)
 
 **`GameAdConfig`** — `[b"ad_config", game]` · owner = ad-pool · **199 B**
 
 | offset | field | type | |
 |---:|---|---|---|
-| 10 | `slot_count` | u8 | ใช้ได้ 0..slot_count |
+| 10 | `slot_count` | u8 | valid slots are 0..slot_count |
 | 11 | `game_program` | Pubkey | |
-| 43 | `genesis_ts` | i64 | 00:00 UTC (หาร 86,400 ลงตัว) · เปลี่ยนไม่ได้ |
-| 51 | `epoch_duration_secs` | i64 | ทวีคูณของ 1 วัน · ≤ 30 วัน · เปลี่ยนไม่ได้ |
-| 59 | `auction_close_lead_secs` | i64 | ≥ 7 วัน · ปิดประมูลก่อน epoch เริ่มเท่านี้ |
-| 67 | `min_bid` | u64 | lamports · bid แรก |
+| 43 | `genesis_ts` | i64 | 00:00 UTC (multiple of 86,400) · immutable |
+| 51 | `epoch_duration_secs` | i64 | multiple of 1 day · ≤ 30 days · immutable |
+| 59 | `auction_close_lead_secs` | i64 | ≥ 7 days · bidding closes this long before the epoch starts |
+| 67 | `min_bid` | u64 | lamports · first bid |
 | 75 | `min_increment_bps` | u16 | |
-| 77 | `bid_horizon_epochs` | u16 | เปิดให้ bid ล่วงหน้าได้ไกลสุดกี่ epoch |
-| 79 | `slots[8]` | 5 B ต่อช่อง: `width` u16 · `height` u16 · `active` bool | |
+| 77 | `bid_horizon_epochs` | u16 | how many epochs ahead bidding is open |
+| 79 | `slots[8]` | 5 B per slot: `width` u16 · `height` u16 · `active` bool | |
 
-**`AdSlotAuction`** — `[b"ad_slot", game, epoch u64 LE, slot u8]` · owner = ad-pool · **779 B** · **ไม่มี account = ยังไม่มีใคร bid** (หรือ epoch จบแล้วและถูก `close_auction` ไปแล้ว — ประวัติดูได้จาก event `AuctionClosed`)
+**`AdSlotAuction`** — `[b"ad_slot", game, epoch u64 LE, slot u8]` · owner = ad-pool · **779 B** · **no account = nobody has bid yet** (or the epoch is over and the account was already closed by `close_auction` — history is in the `AuctionClosed` event)
 
 | offset | field | type | |
 |---:|---|---|---|
 | 10 | `creative_status` | u8 | **0 Empty · 1 TextOnly · 2 Approved** |
 | 11 | `settled` | bool | |
-| 13 | `game_program` | Pubkey | ใช้ derive `gameEntry(...)` ตอน `bid` |
+| 13 | `game_program` | Pubkey | used to derive `gameEntry(...)` for `bid` |
 | 45 | `epoch` | u64 | |
-| 53 / 55 | `width` / `height` | u16 | snapshot ของช่อง |
-| 57 | `close_ts` | i64 | ปิดประมูล |
+| 53 / 55 | `width` / `height` | u16 | snapshot of the slot |
+| 57 | `close_ts` | i64 | bidding closes |
 | 65 | `epoch_start_ts` | i64 | |
 | 73 | `epoch_end_ts` | i64 | |
-| 81 | `fee_bps` | u16 | snapshot ของ `ad_fee_bps` ตอน bid แรก |
+| 81 | `fee_bps` | u16 | snapshot of `ad_fee_bps` at the first bid |
 | 83 | `min_increment_bps` | u16 | snapshot |
-| 85 | `rent_payer` | Pubkey | bidder คนแรก (ได้ rent คืนตอนปิด) |
-| 117 | `highest_bidder` | Pubkey | ผู้นำ / ผู้ชนะ |
+| 85 | `rent_payer` | Pubkey | first bidder (gets the rent back on close) |
+| 117 | `highest_bidder` | Pubkey | leader / winner |
 | 149 | `highest_bid` | u64 | lamports |
 | 157 | `bid_count` | u32 | |
-| 161 | `reject_count` | u16 | ถูก reject / revoke กี่ครั้ง |
-| 163 | `last_reject_flags` | u32 | เหตุผลล่าสุด (bit ดู §6.5) |
-| 167 | `approved_at` | i64 | 0 = ยังไม่เคย approve (revoke ตั้งกลับเป็น 0) |
+| 161 | `reject_count` | u16 | number of rejects / revokes |
+| 163 | `last_reject_flags` | u32 | latest reasons (bits in §6.5) |
+| 167 | `approved_at` | i64 | 0 = never approved (revoke resets it to 0) |
 | 215 | `creative` | `image_url` string · `image_sha256` [32] · `text` string · `click_url` string | string = u32 LE length + UTF-8 bytes |
 
-**`DefaultAd`** (platform-core) — `[b"default_ad", w u16 LE, h u16 LE]` · owner = platform-core · **651 B** · `enabled` @14 (bool) · `creative` @55 (layout เดียวกัน) · ไม่มี account / `enabled = false` / decode ไม่ได้ → **ไม่แสดงอะไร**
+**`DefaultAd`** (platform-core) — `[b"default_ad", w u16 LE, h u16 LE]` · owner = platform-core · **651 B** · `enabled` @14 (bool) · `creative` @55 (same layout) · no account / `enabled = false` / undecodable → **show nothing**
 
 ```ts
 function readCreative(d: Buffer, off: number) {
@@ -108,161 +108,161 @@ function readCreative(d: Buffer, off: number) {
 }
 ```
 
-## 4. แสดงโฆษณาในเกม (FE ของเกม)
+## 4. Showing ads in a game (game FE)
 
-### 4.1 epoch ปัจจุบัน + phase (คำนวณเอง — สถานะไม่เปลี่ยนเองตามเวลา)
+### 4.1 Current epoch + phase (compute it yourself — status does not change by itself over time)
 ```ts
-const now = Math.floor(Date.now() / 1000);              // ใช้นาฬิกา client ได้สำหรับ "แสดงผล"
+const now = Math.floor(Date.now() / 1000);              // the client clock is fine for *display*
 const epoch = now < genesis ? null : BigInt(Math.floor((now - genesis) / duration));
-// ของ auction: now < close_ts → Bidding · < epoch_start → CreativeWindow · < epoch_end → Live · ไม่งั้น Ended
+// per auction: now < close_ts → Bidding · < epoch_start → CreativeWindow · < epoch_end → Live · else Ended
 ```
-- ⚠️ การ**ตัดสิน**ของ program (`BiddingClosed`, creative window) ใช้นาฬิกาของ validator · ใกล้ขอบเวลา (`close_ts` ฯลฯ) ให้เผื่อ ±60 วิ หรืออ่านเวลาจาก chain (`getBlockTime`) ก่อนให้ผู้ใช้กด
+- ⚠️ The program's **decisions** (`BiddingClosed`, the creative window) use the validator clock · near a boundary (`close_ts` etc.) allow ±60 s, or read the time from the chain (`getBlockTime`) before letting the user act
 
-### 4.2 ลำดับการเลือกสิ่งที่แสดง (ต่อช่อง)
-1. อ่าน `GameAdConfig` + `AdSlotAuction(epoch ปัจจุบัน, slot)` + `DefaultAd(w, h)` ใน **`getMultipleAccounts` ครั้งเดียว**
-2. auction มีอยู่ (owner/ขนาด/discriminator ถูก) **และ** `epoch_start_ts ≤ now < epoch_end_ts`:
-   - `Approved` (2) → **ภาพ** + text + click_url — **ดาวน์โหลดภาพแล้ว `sha256(bytes) == image_sha256` ก่อนแสดง** · ไม่ตรง → ใช้แบบ TextOnly แทน
-   - `TextOnly` (1) → **ข้อความ** + click_url แทนภาพ (A13 — ภาพยังไม่ผ่าน)
-   - `Empty` (0) → ข้อ 3
-3. `DefaultAd` ของขนาดนี้ `enabled` → แสดงแบบเดียวกับ `Approved` · platform-core บังคับแค่ `image_sha256 ≠ 0` + ความยาว + `click_url` ขึ้นต้น `https://` → ถ้า `image_url` ว่างหรือ hash ไม่ตรง ให้แสดงข้อความแทน · **ถ้า `text` ว่างด้วย → ข้อ 4** · แสดงลิงก์เฉพาะเมื่อ `click_url` มี host หลัง `https://`
-4. ไม่มีอะไรเลย → ไม่แสดงอะไร (หรือ placeholder ของเกมเอง)
+### 4.2 What to show (per slot)
+1. Read `GameAdConfig` + `AdSlotAuction(current epoch, slot)` + `DefaultAd(w, h)` in **one `getMultipleAccounts` call**
+2. The auction exists (owner/size/discriminator valid) **and** `epoch_start_ts ≤ now < epoch_end_ts`:
+   - `Approved` (2) → **image** + text + click_url — **download the image and check `sha256(bytes) == image_sha256` before showing it** · mismatch → treat as TextOnly
+   - `TextOnly` (1) → **text** + click_url instead of the image (A13 — the image has not passed yet)
+   - `Empty` (0) → step 3
+3. `DefaultAd` for this size is `enabled` → show it like `Approved` · platform-core only enforces `image_sha256 ≠ 0` + lengths + `click_url` starting with `https://` → if `image_url` is empty or the hash does not match, show the text instead · **if `text` is empty too → step 4** · show a link only when `click_url` has a host after `https://`
+4. Nothing → show nothing (or the game's own placeholder)
 
-### 4.3 กติกาความปลอดภัยตอน render (บังคับ)
-- **`text` = plain text เท่านั้น** (`textContent` ไม่ใช่ `innerHTML`) · เป็น UTF-8 ≤ 120 **byte** (ไทย ≈ 40 ตัวอักษร)
-- **ภาพ**: ตรวจ origin ของ `image_url` ว่าเป็น Worker ของ platform (allowlist) **และ** ตรวจ sha256 · on-chain ตรวจแค่ความยาว · ไม่ต้องเชื่อ content-type
-- **click_url (ชั้น 3 ของ A14)**: Worker ตรวจตอน approve และตรวจซ้ำทุก ~10 นาทีแล้ว แต่ปลายทางเปลี่ยนได้ → **แสดงคำเตือนก่อนออกจากเกมเสมอ** ("กำลังออกไปที่ `<host>`") · เปิดด้วย `rel="noopener noreferrer"` · **ห้ามใส่ attribution ของ Google** ในคำเตือน (เงื่อนไข Web Risk)
-- **ไม่ต้องตรวจซ้ำว่าใครชนะ / จ่ายแล้วหรือยัง** — status บน chain เขียนได้แค่ Worker (role Moderator) เท่านั้น
+### 4.3 Rendering safety rules (mandatory)
+- **`text` is plain text only** (`textContent`, not `innerHTML`) · UTF-8 ≤ 120 **bytes** (Thai ≈ 40 characters)
+- **Image**: check that the origin of `image_url` is the platform's Worker (allowlist) **and** check the sha256 · on chain only the length is checked · do not trust the content-type
+- **click_url (layer 3 of A14)**: the Worker checks it at approval and re-checks it every ~10 minutes, but the destination can still change → **always show a warning before leaving the game** ("You are leaving to `<host>`") · open with `rel="noopener noreferrer"` · **do not include Google attribution** in the warning (Web Risk terms)
+- **No need to re-verify who won / whether they paid** — the on-chain status can only be written by the Worker (Moderator role)
 
-### 4.4 Cache
-- `Approved` เป็นของถาวรใน epoch (ล็อกด้วย sha256 — Q4) · แต่ Worker **revoke** ได้ (กลับเป็น `Empty`) → poll ใหม่ทุก 1–5 นาที หรือ `onAccountChange`
-- ภาพ: `GET /ads/<sha256>.<ext>` เป็น immutable (cache ได้ตลอด · มี ETag)
+### 4.4 Caching
+- `Approved` is permanent for the epoch (locked by sha256 — Q4) · but the Worker can **revoke** it (back to `Empty`) → re-poll every 1–5 minutes, or use `onAccountChange`
+- Images: `GET /ads/<sha256>.<ext>` is immutable (cache forever · has an ETag)
 
-## 5. ประมูล (FE ผู้ลงโฆษณา · External Wallet)
+## 5. Bidding (advertiser FE · External Wallet)
 
-### 5.1 bid แรก vs bid ต่อ
-- ยังไม่มี `AdSlotAuction` → **`open_auction`** (สร้าง account · bidder จ่าย rent ≈ 0.0046 SOL — ได้คืนตอนปิด)
-- มีแล้ว → **`bid`** · ถ้าสองคน `open_auction` พร้อมกัน คนหลัง fail (account มีแล้ว) → อ่านใหม่แล้วใช้ `bid`
+### 5.1 First bid vs later bids
+- No `AdSlotAuction` yet → **`open_auction`** (creates the account · the bidder pays rent ≈ 0.0046 SOL — refunded on close)
+- Already exists → **`bid`** · if two people `open_auction` at the same time, the second fails (account already exists) → re-read and use `bid`
 
-### 5.2 ขั้นต่ำ
-- bid แรก: `amount ≥ max(GameAdConfig.min_bid, min_bid_floor)` · `min_bid_floor = max(rent(779 B), ceil(rent(0) × 10,000 / 8,000))` — ปัจจุบันเท่ากับ rent(779) = 4,607,560 lamports บน devnet
-- bid ต่อ: `amount ≥ highest_bid + max(1, ceil(highest_bid × min_increment_bps / 10,000))` (ใช้ `min_increment_bps` ของ **auction**)
-- ผู้นำเพิ่มเงินตัวเองได้ (`prev_bidder` = ตัวเอง · โอนแค่ส่วนต่าง)
+### 5.2 Minimums
+- First bid: `amount ≥ max(GameAdConfig.min_bid, min_bid_floor)` · `min_bid_floor = max(rent(779 B), ceil(rent(0) × 10,000 / 8,000))` — currently equal to rent(779) = 4,607,560 lamports on devnet
+- Later bids: `amount ≥ highest_bid + max(1, ceil(highest_bid × min_increment_bps / 10,000))` (using the **auction's** `min_increment_bps`)
+- The leader may raise their own bid (`prev_bidder` = themselves · only the difference is transferred)
 
-### 5.3 เวลา
-- เปิดได้เมื่อ `now < close_ts` **และ** `epoch_start ≤ now + bid_horizon_epochs × duration` · `close_ts = epoch_start − auction_close_lead_secs` (≥ 7 วัน)
-- เกมต้อง `Active` ใน platform-core ทุก bid (Q2) · ช่องต้อง `active`
+### 5.3 Timing
+- Open while `now < close_ts` **and** `epoch_start ≤ now + bid_horizon_epochs × duration` · `close_ts = epoch_start − auction_close_lead_secs` (≥ 7 days)
+- The game must be `Active` in platform-core for every bid (Q2) · the slot must be `active`
 
-### 5.4 Instruction (ลำดับ account ตรงตาม IDL · ตัวอย่างจริง `scripts/devnet/smoke.ts`)
+### 5.4 Instructions (account order matches the IDL · working example `scripts/devnet/smoke.ts`)
 
 | ix | discriminator | data | accounts (signer · writable) |
 |---|---|---|---|
 | `open_auction` | `[48,60,204,12,175,130,173,33]` | game Pubkey · epoch u64 · slot_index u8 · amount u64 | bidder (s,w) · `gameEntry(game)` · `pcConfig()` · `adConfig(game)` · `adSlot(game,epoch,slot)` (w) · SystemProgram |
 | `bid` | `[199,56,85,38,146,243,37,158]` | amount u64 | bidder (s,w) · auction (w) · `gameEntry(auction.game_program)` · **prev_bidder = `auction.highest_bidder`** (w) · SystemProgram |
 
-- **คืนเงินคนเก่าอยู่ใน tx เดียวกัน (A3)** — ต้องแนบ `prev_bidder` ตรงกับที่อ่านมา · ถ้ามีคนแซงก่อน tx ลง → error **`LeaderChanged` (6017)** → **อ่าน auction ใหม่ แล้วสร้าง tx ใหม่** (ไม่ใช่ retry ตัวเดิม)
-- ใช้ Anchor TS ก็ได้: **`@anchor-lang/core` 1.2.1** + `idls/ad_pool.json` (⚠️ ห้ามใช้ `@coral-xyz/anchor` — ค้างที่ 0.32 ใช้กับ Anchor 1.x ไม่ได้)
+- **The previous leader is refunded in the same tx (A3)** — `prev_bidder` must match what you read · if someone outbids you before your tx lands → error **`LeaderChanged` (6017)** → **re-read the auction and build a new tx** (do not retry the old one)
+- Anchor TS works too: **`@anchor-lang/core` 1.2.1** + `idls/ad_pool.json` (⚠️ do not use `@coral-xyz/anchor` — it is stuck at 0.32 and does not work with Anchor 1.x)
 
-## 6. ส่ง creative ให้ Worker (ผู้ชนะ · หลังปิดประมูล)
+## 6. Submitting a creative to the Worker (winner · after bidding closes)
 
-### 6.1 เมื่อไร
-- ได้ใน `[close_ts, epoch_end_ts)` (รวมช่วงที่ epoch กำลังแสดง — ผ่านแล้วขึ้นจอทันที)
-- **full** (ภาพ + text + click_url) เมื่อ status = `Empty` · **image-only** (ส่งแค่ภาพใหม่) เมื่อ status = `TextOnly` · `Approved` แล้ว = ล็อก เปลี่ยนไม่ได้
+### 6.1 When
+- Within `[close_ts, epoch_end_ts)` (including while the epoch is live — once approved it shows immediately)
+- **full** (image + text + click_url) when status = `Empty` · **image-only** (a new image only) when status = `TextOnly` · `Approved` = locked, cannot change
 
-### 6.2 ข้อความที่ให้ wallet เซ็น (`signMessage` · UTF-8 · `\n` · **ไม่มี newline ท้าย**)
+### 6.2 Message for the wallet to sign (`signMessage` · UTF-8 · `\n` · **no trailing newline**)
 ```text
 ad-pool creative submission
-domain: <AUTH_DOMAIN ของ Worker>
+domain: <AUTH_DOMAIN of the Worker>
 cluster: devnet
 program: 6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk
 game: <game program>
 epoch: <epoch>
 slot: <slot>
-payload: <sha256 hex ตัวเล็ก>
-nonce: <32 hex ตัวเล็ก — สุ่มใหม่ทุกครั้ง>
-expires: <unix seconds · > now และ ≤ now + 600>
+payload: <lowercase sha256 hex>
+nonce: <32 lowercase hex chars — new random value every time>
+expires: <unix seconds · > now and ≤ now + 600>
 ```
 ```ts
 // payload = sha256("ad-pool/v1" ‖ sha256(image) ‖ u32le(len text) ‖ text ‖ u32le(len click_url) ‖ click_url)
-// image-only: text = "" และ click_url = "" · len คือจำนวน BYTE (UTF-8) ไม่ใช่จำนวนตัวอักษร
+// image-only: text = "" and click_url = "" · len is the number of BYTES (UTF-8), not characters
 import bs58 from 'bs58';
 const raw = await wallet.signMessage(new TextEncoder().encode(message));  // Uint8Array(64) (wallet-adapter)
-const signature = bs58.encode(raw);   // ← ส่ง field `signature` เป็น **base58** (ไม่ใช่ hex / bytes / base64)
+const signature = bs58.encode(raw);   // ← send the `signature` field as **base58** (not hex / bytes / base64)
 ```
-- Phantom แบบ provider ตรงคืน `{ signature }` → `bs58.encode(result.signature)` · ส่งผิด encoding = 401 `BadSignatureEncoding`
-- เลขฐานสิบรูปแบบมาตรฐาน (ไม่มี 0 นำหน้า) · **เซ็น message เท่านั้น ห้ามเซ็น transaction** · Worker สร้างข้อความเองจากค่าที่ส่ง — ถ้าเนื้อหาต่างไปแม้ 1 byte = 401
+- Phantom's direct provider returns `{ signature }` → `bs58.encode(result.signature)` · the wrong encoding = 401 `BadSignatureEncoding`
+- Canonical decimals (no leading zeros) · **sign a message only, never a transaction** · the Worker rebuilds the message from the submitted values — if it differs by even 1 byte = 401
 
-### 6.3 `POST /v1/creative` (`multipart/form-data` · ต้องมี `Content-Length`)
-fields: `game` · `epoch` · `slot` · `signer` (pubkey ของผู้ชนะ) · `nonce` · `expires` · `signature` · `image` (file) · `text` · `click_url` (image-only: ไม่ส่ง text/click_url)
+### 6.3 `POST /v1/creative` (`multipart/form-data` · `Content-Length` required)
+fields: `game` · `epoch` · `slot` · `signer` (the winner's pubkey) · `nonce` · `expires` · `signature` · `image` (file) · `text` · `click_url` (image-only: omit text/click_url)
 
-- **ภาพ**: PNG / JPEG / WebP (ดูจาก magic bytes) · **W×H ตรงช่องเป๊ะ** · ≤ 1 MiB · ไม่เคลื่อนไหว · ไม่มี byte ต่อท้าย · EXIF ได้ถ้าไม่หมุนภาพและ**ไม่มี GPS** (strip ก่อนส่ง)
-- **text**: 1–120 byte · ไม่มี control / ตัวอักษรล่องหน / bidi override
-- **click_url**: `https://` · ไม่มี IP / port / user:pass / punycode / shortener / ชื่อภายใน · ≤ 200 byte · ที่ขึ้น chain = รูป normalize (เช่น host ตัวเล็ก + `/` ท้าย)
+- **Image**: PNG / JPEG / WebP (detected from magic bytes) · **W×H must match the slot exactly** · ≤ 1 MiB · not animated · no trailing bytes · EXIF allowed if it does not rotate the image and has **no GPS** (strip it before sending)
+- **text**: 1–120 bytes · no control / invisible / bidi-override characters
+- **click_url**: `https://` · no IP / port / user:pass / punycode / shortener / internal names · ≤ 200 bytes · what goes on chain is the normalized form (e.g. lowercase host + trailing `/`)
 
-### 6.4 คำตอบ (สรุป — สัญญาฉบับเต็มอยู่ที่ `specs/designs/04-worker-api-v1.md` · ถ้าขัดกัน ยึด doc 04)
-| HTTP | ความหมาย | FE ทำอะไร |
+### 6.4 Responses (summary — the full contract is `specs/designs/04-worker-api-v1.md` · if they disagree, doc 04 wins)
+| HTTP | Meaning | What the FE does |
 |---|---|---|
-| 200 `approved` / `text_only` / `image_approved` | ขึ้น chain แล้ว (มี `signature`) | แสดงผล · `text_only` = ภาพไม่ผ่าน (ดู `reasons`) → ให้ส่งภาพใหม่แบบ image-only |
-| 422 `rejected` | ไม่ผ่าน · บันทึกเหตุผลบน chain (`flags`, `reasons`) | แก้แล้วส่งใหม่ (สถานะไม่เปลี่ยน) |
-| 202 `confirmed:false` | ส่ง tx แล้วแต่ยังไม่ confirm | อ่าน auction ซ้ำ · **อย่าส่งใหม่ภายใน 180 วิ** (lock ของช่องยังค้าง → 409 `InFlight`) |
-| 400 / 401 | ข้อมูลผิด (รวม `multipart_required`) / ลายเซ็นไม่ผ่าน | แก้ที่ client |
-| 411 `length_required` · 413 `too_large` | ไม่มี `Content-Length` / body เกิน 1 MiB + 64 KiB | ส่ง `Content-Length` · ย่อภาพ |
-| 404 `no_auction` | ยังไม่มีใคร bid ช่องนี้ (หรือถูก close แล้ว) | ตรวจ game/epoch/slot |
-| 403 `NotWinner` · 409 `NotInCreativeWindow` / `WrongKind` / `AlreadyApproved` | ผิดสิทธิ์ / ผิดเวลา / ผิดชนิด | |
-| 409 `InFlight` | มี submission ของช่องนี้กำลังทำ | **ส่งคำขอเดิมซ้ำได้** หลัง `retry_after_secs` (nonce ยังไม่ถูกใช้) |
-| 409 `Replay` · 429 `RateLimited` | nonce ซ้ำ · เกิน 10 ครั้ง/ชม./ช่อง | เซ็นใหม่ / รอ |
-| 503 (เช่น `moderation_unavailable`, `moderator_unavailable`, `rpc_*`, `storage_unavailable`, `deadline`, `gate_unavailable`) | ตรวจไม่ได้ชั่วคราว (fail closed) — ไม่มีอะไรขึ้น chain | **เซ็นใหม่ด้วย nonce ใหม่** แล้วลองอีกครั้ง |
-| 502 `tx_unknown` | ส่ง tx แล้วแต่ไม่รู้ผล (อาจลงแล้ว · มี `signature`) | **อย่าเซ็นใหม่ทันที** — เช็ค `signature` / อ่าน auction ก่อน (lock ค้าง 180 วิ) |
-| 502 `tx_rejected` / `tx_failed` (มี `program_error`) | program ปฏิเสธ (เช่น 6012 `SlotInactive`) | ดู code ใน §10 · **ส่งซ้ำไม่ช่วย** |
-| 502 อื่นๆ (`rpc_*`, `bad_auction_account`) | RPC / account ผิดปกติ | ลองใหม่ภายหลัง · แจ้งผู้ดูแลถ้าซ้ำ |
+| 200 `approved` / `text_only` / `image_approved` | On chain (has `signature`) | Show the result · `text_only` = the image failed (see `reasons`) → let the user send a new image as image-only |
+| 422 `rejected` | Failed · reasons recorded on chain (`flags`, `reasons`) | Fix and resubmit (status unchanged) |
+| 202 `confirmed:false` | Tx sent but not yet confirmed | Re-read the auction · **do not resubmit within 180 s** (the slot's lock is still held → 409 `InFlight`) |
+| 400 / 401 | Bad input (incl. `multipart_required`) / signature failed | Fix on the client |
+| 411 `length_required` · 413 `too_large` | No `Content-Length` / body over 1 MiB + 64 KiB | Send `Content-Length` · shrink the image |
+| 404 `no_auction` | Nobody has bid on this slot (or it was already closed) | Check game/epoch/slot |
+| 403 `NotWinner` · 409 `NotInCreativeWindow` / `WrongKind` / `AlreadyApproved` | Wrong signer / wrong time / wrong kind | |
+| 409 `InFlight` | Another submission for this slot is in progress | **Resend the same request** after `retry_after_secs` (the nonce was not consumed) |
+| 409 `Replay` · 429 `RateLimited` | Nonce reused · more than 10 per hour per slot | Re-sign / wait |
+| 503 (e.g. `moderation_unavailable`, `moderator_unavailable`, `rpc_*`, `storage_unavailable`, `deadline`, `gate_unavailable`) | A check could not run (fail closed) — nothing went on chain | **Re-sign with a new nonce** and try again |
+| 502 `tx_unknown` | Tx sent but the outcome is unknown (may have landed · has `signature`) | **Do not re-sign right away** — check the `signature` / re-read the auction first (lock held for 180 s) |
+| 502 `tx_rejected` / `tx_failed` (with `program_error`) | The program refused (e.g. 6012 `SlotInactive`) | Look the code up in §10 · **retrying will not help** |
+| 502 other (`rpc_*`, `bad_auction_account`) | RPC / account anomaly | Try again later · report it if it repeats |
 
-### 6.5 bit ของ `flags` / `last_reject_flags`
-`1` ไฟล์ · `2` W×H · `4` ภาพไม่ผ่าน moderation · `8` ข้อความไม่ผ่าน · `16` click_url ชั้น 1 · `32` click_url ชั้น 2 (Web Risk) · `64` ยาวเกิน
+### 6.5 Bits of `flags` / `last_reject_flags`
+`1` file · `2` W×H · `4` image failed moderation · `8` text failed · `16` click_url layer 1 · `32` click_url layer 2 (Web Risk) · `64` too long
 
-## 7. เจ้าของเกม: ตั้งค่าช่องโฆษณา
+## 7. Game owner: configuring ad slots
 
-ต้องเซ็นโดย **`GameEntry.owner`** และเกม `Active` (ตอน init) · ix อยู่ใน IDL (`init_ad_config`, `update_ad_config`, `add_slot`, `set_slot_active`)
+Must be signed by **`GameEntry.owner`**, with the game `Active` (at init) · instructions are in the IDL (`init_ad_config`, `update_ad_config`, `add_slot`, `set_slot_active`)
 
-| field | กติกา (program บังคับ) |
+| field | Rule (enforced by the program) |
 |---|---|
-| `genesis_ts` | ≥ 0 · **หาร 86,400 ลงตัว** (00:00 UTC = 07:00 ICT) · ≤ now + 90 วัน · **แก้ไม่ได้อีก** |
-| `epoch_duration_secs` | ทวีคูณของ 86,400 · ≤ 30 วัน · **แก้ไม่ได้อีก** |
-| `auction_close_lead_secs` | **≥ 7 × 86,400** (ไม่จำเป็นต้องลงตัวที่วัน) |
+| `genesis_ts` | ≥ 0 · **multiple of 86,400** (00:00 UTC = 07:00 ICT) · ≤ now + 90 days · **cannot be changed later** |
+| `epoch_duration_secs` | multiple of 86,400 · ≤ 30 days · **cannot be changed later** |
+| `auction_close_lead_secs` | **≥ 7 × 86,400** (does not have to be a whole number of days) |
 | `min_bid` | ≥ rent(779 B) |
 | `min_increment_bps` | 1..=10,000 |
-| `bid_horizon_epochs` | `× duration ≤ 90 วัน` และ `≥ lead + 1 epoch` |
-| `slots` | 1..=8 ช่อง · W, H > 0 · **เพิ่มได้อย่างเดียว ลบ/แก้ขนาดไม่ได้** · เลิกขาย = `set_slot_active(false)` |
+| `bid_horizon_epochs` | `× duration ≤ 90 days` and `≥ lead + 1 epoch` |
+| `slots` | 1..=8 slots · W, H > 0 · **add-only — cannot be removed or resized** · to stop selling a slot = `set_slot_active(false)` |
 
-- `update_ad_config` (ทุก field เป็น Option) มีผลกับ **auction ใหม่** เท่านั้น — auction ที่เปิดแล้ว snapshot ค่าไว้
-- ตั้ง `genesis_ts` / duration ผิด = config นั้นใช้ไม่ได้ถาวร (ไม่มี re-init) → ตรวจก่อนเซ็น
-- ตัวอย่างจริง: `scripts/devnet/smoke.ts` (`init_ad_config`)
+- `update_ad_config` (every field is an Option) applies to **new auctions** only — auctions already open have snapshotted their values
+- A wrong `genesis_ts` / duration makes that config permanently unusable (there is no re-init) → double-check before signing
+- Working example: `scripts/devnet/smoke.ts` (`init_ad_config`)
 
-## 8. โฆษณาพื้นฐาน (Admin ของ platform)
-- `POST /v1/default-ad` บน Worker · ผู้ส่ง = wallet ที่มี `RoleMember(Admin)` ของ platform-core เท่านั้น · ผ่านการตรวจแบบเดียวกับ §6 ทุกขั้น (ต้องผ่านครบ — ไม่มี text-only)
-- ข้อความเซ็นขึ้นต้นด้วย `ad-pool default ad submission` และมี `program: <platform-core>`, `width`, `height` แทน game/epoch/slot (รายละเอียด doc 04)
-- เปิด/ปิด (`set_default_ad_enabled`) → Admin เซ็นเองจาก wallet ตรงกับ platform-core (Worker ไม่มี endpoint นี้)
+## 8. Default ads (platform Admin)
+- `POST /v1/default-ad` on the Worker · the sender must be a wallet with platform-core `RoleMember(Admin)` · goes through every check in §6 (all must pass — no text-only)
+- The signed message starts with `ad-pool default ad submission` and has `program: <platform-core>`, `width`, `height` instead of game/epoch/slot (details in doc 04)
+- Enable/disable (`set_default_ad_enabled`) → the Admin signs it directly against platform-core from their wallet (the Worker has no endpoint for this)
 
-## 9. settle / close (ไม่ต้องทำอะไร)
-- Worker crank (ทุก 10 นาที) ส่ง `settle` หลัง `epoch_start_ts` (เงิน → เจ้าของเกม 99% / Treasury 1%) และ `close_auction` หลัง `epoch_end_ts` (rent → `rent_payer`) · ทั้งคู่ **permissionless** — ใครกดแทนก็ได้ (เงินไปที่ถูกต้องเสมอ)
+## 9. settle / close (nothing to do)
+- The Worker crank (every 10 minutes) sends `settle` after `epoch_start_ts` (money → game owner 99% / Treasury 1%) and `close_auction` after `epoch_end_ts` (rent → `rent_payer`) · both are **permissionless** — anyone may call them (funds always go to the right place)
 
-## 10. Error code ที่ FE เจอบ่อย (ทั้งหมดใน IDL `errors`)
+## 10. Error codes FEs hit most (all are in the IDL `errors`)
 
-| code | name | ทำอะไร |
+| code | name | What to do |
 |---:|---|---|
-| 6000 | `GameNotActive` | เกมถูกพัก — ห้าม bid |
-| 6008 / 6009 | `MinBidBelowFloor` / `BidBelowFloor` | ต่ำกว่าค่า rent ของ account |
-| 6011 / 6012 | `InvalidSlot` / `SlotInactive` | ช่องไม่มี / ปิดขาย |
-| 6014 | `BiddingClosed` | เลย `close_ts` แล้ว |
-| 6015 | `BeyondHorizon` | epoch ไกลเกินกว่าที่เปิดให้ bid |
-| 6016 | `BidTooLow` | ต่ำกว่า min_bid หรือ increment ขั้นต่ำ |
-| 6017 | `LeaderChanged` | มีคนแซง → อ่านใหม่ + สร้าง tx ใหม่ |
-| 6001 / 6002–6006 / 6010 / 6013 | config | ดู §7 |
+| 6000 | `GameNotActive` | Game is suspended — no bids |
+| 6008 / 6009 | `MinBidBelowFloor` / `BidBelowFloor` | Below the account's rent |
+| 6011 / 6012 | `InvalidSlot` / `SlotInactive` | No such slot / slot not for sale |
+| 6014 | `BiddingClosed` | Past `close_ts` |
+| 6015 | `BeyondHorizon` | Epoch is further ahead than bidding allows |
+| 6016 | `BidTooLow` | Below min_bid or the minimum increment |
+| 6017 | `LeaderChanged` | Outbid → re-read + build a new tx |
+| 6001 / 6002–6006 / 6010 / 6013 | config | See §7 |
 
-## 11. Checklist ก่อนขึ้นจริง
-- [ ] ตรวจ owner + ขนาด + discriminator ของทุก account ก่อนอ่าน
-- [ ] `epoch` เป็น u64 LE · `slot` เป็น u8 ใน seed
-- [ ] ภาพ: origin allowlist + `sha256 == image_sha256` · text เป็น plain text · click_url มีคำเตือนก่อนออก
-- [ ] fallback ครบ: Approved → TextOnly → DefaultAd(enabled) → ว่าง
-- [ ] bid: แนบ `prev_bidder` = `highest_bidder` ที่เพิ่งอ่าน · จัดการ `LeaderChanged`
-- [ ] creative: ข้อความเซ็นตรง template ทุก byte · nonce ใหม่ทุกครั้ง · ส่ง `Content-Length`
-- [ ] ใช้ External Wallet · ไม่ส่ง ix ของ ad-pool ผ่าน relayer
-- [ ] ⚠️ ข้อความที่ wallet เซ็นแสดงแค่ hash → FE ควรแสดง text / click_url / ภาพให้ผู้ใช้เห็นชัดก่อนกดเซ็น (หน้าเว็บปลอมอาจหลอกให้เซ็น creative ของคนอื่น · แนวทาง SIWS กำลังพิจารณา)
+## 11. Checklist before going live
+- [ ] Check owner + size + discriminator of every account before reading it
+- [ ] `epoch` is u64 LE · `slot` is u8 in seeds
+- [ ] Images: origin allowlist + `sha256 == image_sha256` · text as plain text · a warning before following click_url
+- [ ] Full fallback: Approved → TextOnly → DefaultAd(enabled) → empty
+- [ ] Bids: pass `prev_bidder` = the `highest_bidder` you just read · handle `LeaderChanged`
+- [ ] Creatives: the signed message matches the template byte for byte · a new nonce every time · send `Content-Length`
+- [ ] External Wallet only · never send ad-pool instructions through the relayer
+- [ ] ⚠️ The wallet only shows a hash in the signed message → the FE should show the text / click_url / image clearly before the user signs (a phishing page could trick a winner into signing someone else's creative · a SIWS-based flow is under consideration)
