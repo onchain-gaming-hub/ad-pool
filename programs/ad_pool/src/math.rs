@@ -111,7 +111,7 @@ pub fn min_next_bid(highest_bid: u64, min_increment_bps: u16) -> Result<u64> {
     u64::try_from(next).map_err(|_| error!(AdPoolError::MathOverflow))
 }
 
-/// Floor for `min_bid` and for every bid (design §5.3 · maintainer Q6):
+/// Floor for `min_bid` and for every bid (design §5.3):
 /// `max(rent(AdSlotAuction), ceil(rent(0) × 10,000 / (10,000 − MAX_FEE_BPS)))`.
 /// The first term makes an ad never cheaper than its on-chain storage; the second keeps
 /// every refund and every settle payout ≥ rent(0), so crediting a drained (0-lamport)

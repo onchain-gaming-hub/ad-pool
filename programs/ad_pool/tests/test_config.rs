@@ -711,7 +711,7 @@ fn idl_has_game_ad_config_with_fixed_slot_array() {
 
 #[test]
 fn init_caps_genesis_at_now_plus_90_days() {
-    // maintainer 2026-10-10: genesis_ts <= now + MAX_HORIZON_SECS (design §4.4).
+    // Design decision 2026-10-10: genesis_ts <= now + MAX_HORIZON_SECS (design §4.4).
     let svm = setup(); // now = T0 (a UTC midnight)
     let mut a = base(&svm);
     a.genesis_ts = T0 + MAX_HORIZON_SECS;

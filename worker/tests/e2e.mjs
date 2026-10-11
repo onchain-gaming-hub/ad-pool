@@ -10,7 +10,7 @@
 // The mock RPC applies moderator txs to its accounts (status byte) and answers
 // getSignatureStatuses per signature, so re-reads and lock behavior see real state changes.
 //
-// The client side here is written from specs/designs/04-worker-api-v1.md (message template,
+// The client side here is written from docs/worker-api.md (message template,
 // payload hash, multipart fields), not from the Worker's code — so doc drift fails a test.
 import http from 'node:http';
 import crypto from 'node:crypto';

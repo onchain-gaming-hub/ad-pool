@@ -33,7 +33,7 @@ pub enum UrlReject {
 }
 
 impl UrlReject {
-    /// Re-check policy (W5 review · ⚠️ maintainer to confirm): a live, paid ad is revoked only for
+    /// Re-check policy (⚠️ pending final confirmation): a live, paid ad is revoked only for
     /// rules that signal intent to deceive. Rules that a broken-but-honest site can trip
     /// (missing Location, too many hops, an http:// hop, a port, length) only raise an alert.
     /// At submission time every rule still rejects.

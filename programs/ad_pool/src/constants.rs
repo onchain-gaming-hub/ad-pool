@@ -1,5 +1,5 @@
 //! Seeds and limits. ⚠️ Interface — never change a seed value after deploy.
-//! Design: specs/designs/01-program-design-v1.md §2–§5.
+//! Design notes (01 §2–§5) are kept in the hub's private specs repo.
 
 use anchor_lang::prelude::*;
 

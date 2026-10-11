@@ -1,5 +1,5 @@
 //! Golden layout tests (P0) — sizes, offsets, discriminators and enum bytes must match
-//! specs/designs/01-program-design-v1.md §2/§3. A failure here means the FE, the Worker
+//! the design (01 §2/§3; `SKILL.md` §3 for the offsets). A failure here means the FE, the Worker
 //! or a memcmp filter would read the account wrong.
 
 use {

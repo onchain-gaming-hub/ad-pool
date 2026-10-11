@@ -59,7 +59,7 @@ pub fn from_lookup(get: impl Fn(&str) -> Option<String>) -> Result<Config, Confi
     };
     let cluster = req("CLUSTER")?;
     if cluster != "devnet" {
-        // Golden rule: devnet only unless maintainer says otherwise.
+        // Devnet only for now.
         return Err(ConfigError(format!("CLUSTER {cluster} not allowed")));
     }
     let expected_genesis_hash = req("EXPECTED_GENESIS_HASH")?;

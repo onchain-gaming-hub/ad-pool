@@ -1,6 +1,6 @@
 //! ad-pool — per-game ad slot auctions in SOL, one auction per (game, epoch, slot),
 //! with creatives written on chain by a Moderator-role Worker after off-chain checks.
-//! Design: specs/designs/01-program-design-v1.md · Plan: specs/designs/02-implementation-plan.md
+//! Integration guide: `SKILL.md`. Design notes are kept in the hub's private specs repo.
 //!
 //! Phases: P0 layouts · P1 config · P2 open_auction + bid · P3 moderation · P4 settle + close.
 

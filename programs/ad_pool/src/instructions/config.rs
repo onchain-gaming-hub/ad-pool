@@ -131,7 +131,7 @@ pub fn handle_init_ad_config(
         bid_horizon_epochs,
         &Rent::get()?,
     )?;
-    // maintainer 2026-10-10 (design §4.4): genesis is immutable and there is no re-init, so a
+    // Design decision 2026-10-10 (§4.4): genesis is immutable and there is no re-init, so a
     // far-future typo would brick the game's config forever → cap it at now + 90 days.
     let now = Clock::get()?.unix_timestamp;
     let max_genesis = now

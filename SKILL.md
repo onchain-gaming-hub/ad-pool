@@ -6,7 +6,7 @@ description: How to connect a frontend to blockchain-games-hub ad-pool — show 
 # ad-pool — Frontend Integration Guide
 
 > Source: `blockchain-games-hub/ad-pool/SKILL.md` · maintained by the blockchain-games-hub maintainers · version 2026-10-11 (program IDL 0.1.0 · Worker API v1)
-> Deeper references: design `specs/designs/01-program-design-v1.md` · Worker API `specs/designs/04-worker-api-v1.md` · devnet `specs/deploy/devnet-runbook.md` · working examples `scripts/devnet/smoke.ts` (bids that landed on devnet) · `worker/tests/e2e.mjs` (a Worker client written from doc 04)
+> Deeper references: Worker API [`docs/worker-api.md`](docs/worker-api.md) · IDL `idls/ad_pool.json` · working examples `scripts/devnet/smoke.ts` (bids that landed on devnet) · `worker/tests/e2e.mjs` (a Worker client written from the Worker API doc)
 > **devnet only** for now · `<WORKER_URL>` = origin of the moderator Worker and `<AUTH_DOMAIN>` = that Worker's `AUTH_DOMAIN` value (ask the platform maintainer)
 
 ## 0. Overview in 30 seconds
@@ -198,7 +198,7 @@ fields: `game` · `epoch` · `slot` · `signer` (the winner's pubkey) · `nonce`
 - **text**: 1–120 bytes · no control / invisible / bidi-override characters
 - **click_url**: `https://` · no IP / port / user:pass / punycode / shortener / internal names · ≤ 200 bytes · what goes on chain is the normalized form (e.g. lowercase host + trailing `/`)
 
-### 6.4 Responses (summary — the full contract is `specs/designs/04-worker-api-v1.md` · if they disagree, doc 04 wins)
+### 6.4 Responses (summary — the full contract is [`docs/worker-api.md`](docs/worker-api.md) · if they disagree, that doc wins)
 | HTTP | Meaning | What the FE does |
 |---|---|---|
 | 200 `approved` / `text_only` / `image_approved` | On chain (has `signature`) | Show the result · `text_only` = the image failed (see `reasons`) → let the user send a new image as image-only |
@@ -238,7 +238,7 @@ Must be signed by **`GameEntry.owner`**, with the game `Active` (at init) · ins
 
 ## 8. Default ads (platform Admin)
 - `POST /v1/default-ad` on the Worker · the sender must be a wallet with platform-core `RoleMember(Admin)` · goes through every check in §6 (all must pass — no text-only)
-- The signed message starts with `ad-pool default ad submission` and has `program: <platform-core>`, `width`, `height` instead of game/epoch/slot (details in doc 04)
+- The signed message starts with `ad-pool default ad submission` and has `program: <platform-core>`, `width`, `height` instead of game/epoch/slot (details in [`docs/worker-api.md`](docs/worker-api.md))
 - Enable/disable (`set_default_ad_enabled`) → the Admin signs it directly against platform-core from their wallet (the Worker has no endpoint for this)
 
 ## 9. settle / close (nothing to do)

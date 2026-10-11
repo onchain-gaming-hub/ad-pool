@@ -1,13 +1,13 @@
 //! ad-pool moderator Worker (W0: scaffold, config, RPC, decoding · W1: creative intake ·
 //! W2: moderation, click_url layers 1–2, R2, on-chain approve/reject).
-//! Plan: ../specs/designs/02-implementation-plan.md §4 · Design: ../specs/designs/01 §7.
+//! Design notes (01 §7) are kept in the hub's private specs repo.
 //!
 //! Routes (W0):
 //! - `GET /health` — config + program IDs (no RPC)
 //! - `GET /v1/health/rpc` — RPC reachable and on the expected cluster (genesis hash)
 //! - `GET /v1/auction/:game_program/:epoch/:slot` — decoded `AdSlotAuction` + phase
 //! - `POST /v1/creative` — multipart submission from the winning bidder: auth + checks (W1)
-//!   → moderation + URL checks → R2 → approve/reject tx (W2). API: ../specs/designs/04-worker-api-v1.md
+//!   → moderation + URL checks → R2 → approve/reject tx (W2). API: ../docs/worker-api.md
 //! - `POST /v1/default-ad` — W4: platform-core Admin submits the default ad of one size
 //!   (same pipeline) → pc `create_default_ad` / `update_default_ad` as Moderator
 //! - `GET /ads/<sha256>.<ext>` — approved image from R2 (content type from the checked kind)

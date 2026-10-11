@@ -1,5 +1,5 @@
-//! Approved images in R2 (A4) and how they are served (`GET /ads/<sha256>.<ext>` — maintainer
-//! 2026-10-10: images go through the Worker). Key = content hash, so an object can never be
+//! Approved images in R2 (A4) and how they are served (`GET /ads/<sha256>.<ext>` — images
+//! are served by the Worker). Key = content hash, so an object can never be
 //! replaced by different bytes, and FE checks the bytes against `image_sha256` on chain.
 //! Objects are written **only after the image passed moderation** (A1).
 

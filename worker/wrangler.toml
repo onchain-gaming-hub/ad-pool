@@ -34,7 +34,7 @@ PUBLIC_BASE_URL = "https://ad-pool.devnet.local"
 CRANK_ADDRESS = "ESgASsgG2Uzh4ccQTga5yXoZnkDCCEociVYYe6Trq3LP"
 
 # Subrequests one crank run may spend. Cloudflare: Free 50 · Paid 10,000 per invocation
-# (verified 2026-10-10). maintainer chose **Workers Paid** (DECISIONS H-2, closes AD-2) → 900
+# (verified 2026-10-10). This Worker targets **Workers Paid** → 900
 # (≈ 9 % of the Paid limit: room for ~34 URL re-checks or ~300 settle/close per run).
 # Free would also cap CPU at 10 ms — too little for 1 MB image hashing/base64.
 SUBREQUEST_BUDGET = "900"

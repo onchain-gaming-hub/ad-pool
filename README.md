@@ -47,7 +47,7 @@ programs/ad_pool/     Anchor program (12 instructions) + LiteSVM tests
 worker/               moderator Worker: src/ · tests/ (golden, intake, e2e.mjs) · examples/ · wrangler.toml
 idls/                 ad_pool.json (exported) · platform_core.json (copy of the neighbor's IDL)
 scripts/              test.sh · export-idl.sh · devnet/ (smoke.ts, a no-op test game)
-specs/                design, Worker API, devnet runbook, research (mostly in Thai)
+docs/                 worker-api.md — the Worker's HTTP contract
 SKILL.md              frontend integration guide (English)
 ```
 
