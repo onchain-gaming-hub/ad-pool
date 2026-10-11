@@ -14,8 +14,8 @@ description: How to connect a frontend to blockchain-games-hub ad-pool — show 
 - Each game sells **ad slots** (fixed W×H) per **epoch** (unit: days) · auctions are in **SOL**, one per (game, epoch, slot)
 - The winner submits **image + text + click_url** to the **Worker (moderator)** → the Worker checks them (file, AI moderation, URL) and **writes the result on chain itself** · the FE does **not** need to trust the Worker — the chain is the source of truth
 - Game FEs **read accounts directly** (no CPI, no backend) · the image is pinned by `image_sha256` on chain
-- Money: the winner pays in full (no refund even if the ad never passes — decision D4) · after the epoch starts, 99% → game owner · 1% → platform Treasury (`ad_fee_bps` snapshotted at the first bid)
-- Advertisers use **External Wallets only** (Phantom, Solflare …) and pay their own gas + rent — **no ad-pool instruction goes through the relayer** (A16)
+- Money: the winner pays in full (no refund even if the ad never passes moderation) · after the epoch starts, 99% → game owner · 1% → platform Treasury (`ad_fee_bps` snapshotted at the first bid)
+- Advertisers use **External Wallets only** (Phantom, Solflare …) and pay their own gas + rent — **no ad-pool instruction goes through the relayer**
 
 | | devnet |
 |---|---|
@@ -122,7 +122,7 @@ const epoch = now < genesis ? null : BigInt(Math.floor((now - genesis) / duratio
 1. Read `GameAdConfig` + `AdSlotAuction(current epoch, slot)` + `DefaultAd(w, h)` in **one `getMultipleAccounts` call**
 2. The auction exists (owner/size/discriminator valid) **and** `epoch_start_ts ≤ now < epoch_end_ts`:
    - `Approved` (2) → **image** + text + click_url — **download the image and check `sha256(bytes) == image_sha256` before showing it** · mismatch → treat as TextOnly
-   - `TextOnly` (1) → **text** + click_url instead of the image (A13 — the image has not passed yet)
+   - `TextOnly` (1) → **text** + click_url instead of the image (the image has not passed yet)
    - `Empty` (0) → step 3
 3. `DefaultAd` for this size is `enabled` → show it like `Approved` · platform-core only enforces `image_sha256 ≠ 0` + lengths + `click_url` starting with `https://` → if `image_url` is empty or the hash does not match, show the text instead · **if `text` is empty too → step 4** · show a link only when `click_url` has a host after `https://`
 4. Nothing → show nothing (or the game's own placeholder)
@@ -130,11 +130,11 @@ const epoch = now < genesis ? null : BigInt(Math.floor((now - genesis) / duratio
 ### 4.3 Rendering safety rules (mandatory)
 - **`text` is plain text only** (`textContent`, not `innerHTML`) · UTF-8 ≤ 120 **bytes** (Thai ≈ 40 characters)
 - **Image**: check that the origin of `image_url` is the platform's Worker (allowlist) **and** check the sha256 · on chain only the length is checked · do not trust the content-type
-- **click_url (layer 3 of A14)**: the Worker checks it at approval and re-checks it every ~10 minutes, but the destination can still change → **always show a warning before leaving the game** ("You are leaving to `<host>`") · open with `rel="noopener noreferrer"` · **do not include Google attribution** in the warning (Web Risk terms)
+- **click_url (the FE is the third check layer)**: the Worker checks it at approval and re-checks it every ~10 minutes, but the destination can still change → **always show a warning before leaving the game** ("You are leaving to `<host>`") · open with `rel="noopener noreferrer"` · **do not include Google attribution** in the warning (Web Risk terms)
 - **No need to re-verify who won / whether they paid** — the on-chain status can only be written by the Worker (Moderator role)
 
 ### 4.4 Caching
-- `Approved` is permanent for the epoch (locked by sha256 — Q4) · but the Worker can **revoke** it (back to `Empty`) → re-poll every 1–5 minutes, or use `onAccountChange`
+- `Approved` is permanent for the epoch (locked by sha256) · but the Worker can **revoke** it (back to `Empty`) → re-poll every 1–5 minutes, or use `onAccountChange`
 - Images: `GET /ads/<sha256>.<ext>` is immutable (cache forever · has an ETag)
 
 ## 5. Bidding (advertiser FE · External Wallet)
@@ -150,7 +150,7 @@ const epoch = now < genesis ? null : BigInt(Math.floor((now - genesis) / duratio
 
 ### 5.3 Timing
 - Open while `now < close_ts` **and** `epoch_start ≤ now + bid_horizon_epochs × duration` · `close_ts = epoch_start − auction_close_lead_secs` (≥ 7 days)
-- The game must be `Active` in platform-core for every bid (Q2) · the slot must be `active`
+- The game must be `Active` in platform-core for every bid · the slot must be `active`
 
 ### 5.4 Instructions (account order matches the IDL · working example `scripts/devnet/smoke.ts`)
 
@@ -159,7 +159,7 @@ const epoch = now < genesis ? null : BigInt(Math.floor((now - genesis) / duratio
 | `open_auction` | `[48,60,204,12,175,130,173,33]` | game Pubkey · epoch u64 · slot_index u8 · amount u64 | bidder (s,w) · `gameEntry(game)` · `pcConfig()` · `adConfig(game)` · `adSlot(game,epoch,slot)` (w) · SystemProgram |
 | `bid` | `[199,56,85,38,146,243,37,158]` | amount u64 | bidder (s,w) · auction (w) · `gameEntry(auction.game_program)` · **prev_bidder = `auction.highest_bidder`** (w) · SystemProgram |
 
-- **The previous leader is refunded in the same tx (A3)** — `prev_bidder` must match what you read · if someone outbids you before your tx lands → error **`LeaderChanged` (6017)** → **re-read the auction and build a new tx** (do not retry the old one)
+- **The previous leader is refunded in the same tx** — `prev_bidder` must match what you read · if someone outbids you before your tx lands → error **`LeaderChanged` (6017)** → **re-read the auction and build a new tx** (do not retry the old one)
 - Anchor TS works too: **`@anchor-lang/core` 1.2.1** + `idls/ad_pool.json` (⚠️ do not use `@coral-xyz/anchor` — it is stuck at 0.32 and does not work with Anchor 1.x)
 
 ## 6. Submitting a creative to the Worker (winner · after bidding closes)
