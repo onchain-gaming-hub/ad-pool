@@ -11,6 +11,7 @@
 | Specs | [`specs/init.md`](specs/init.md) (maintainer — ต้นฉบับ) · [`specs/spec-v1.md`](specs/spec-v1.md) (ภาพรวม) |
 | **Design** | [`specs/designs/01-program-design-v1.md`](specs/designs/01-program-design-v1.md) — accounts, state machine, instructions (ผ่าน review · อนุมัติ 2026-10-09) |
 | **Plan / tracking** | [`specs/designs/02-implementation-plan.md`](specs/designs/02-implementation-plan.md) — phase P0–P5 (program) · W0–W6 (Worker) · F1 (FE) |
+| **ต่อ FE** | [`SKILL.md`](SKILL.md) — แสดงโฆษณาในเกม · bid · ส่ง creative · ตั้งค่าช่องโฆษณา (สำหรับทีม FE / SDK) |
 | Worker API | [`specs/designs/04-worker-api-v1.md`](specs/designs/04-worker-api-v1.md) — `POST /v1/creative` |
 | **Devnet** | program `6T2vwUm5EPBAUQaZNcPwEkgK4rHc9AjoET6DaTq3LEqk` · slot 509493617 · upgrade authority `HRstpEJN…MsTvy` — [`specs/deploy/devnet-runbook.md`](specs/deploy/devnet-runbook.md) §4 |
 | Research | [`specs/research/`](specs/research/) — A9 moderation · A14 URL reputation |
