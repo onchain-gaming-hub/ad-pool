@@ -2,7 +2,7 @@
 
 **Per-game ad slots on Solana, auctioned in SOL and moderated before they reach the screen.**
 
-Part of [blockchain-games-hub](https://github.com/solana-games-hub): fully on-chain games that share a platform layer (game registry, roles, treasury), lobbies, reward pools — and this ad marketplace.
+Part of [onchain-gaming-hub](https://github.com/onchain-gaming-hub): fully on-chain games that share a platform layer (game registry, roles, treasury), lobbies, reward pools — and this ad marketplace.
 
 - Every game sells **ad slots** of a fixed size (W×H), one auction per **epoch** (days) per slot.
 - Anyone with an external wallet can bid in **SOL**. A higher bid refunds the previous leader **in the same transaction**.
