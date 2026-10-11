@@ -267,7 +267,7 @@ async function main() {
     MODERATOR_KEYPAIR: moderator.secret58, MODERATOR_ADDRESS: moderator.pub,
     CRANK_KEYPAIR: crank.secret58, CRANK_ADDRESS: crank.pub,
     MAX_SUBMISSIONS_PER_HOUR: '3', RPC_TIMEOUT_MS: '2000', PUBLIC_BASE_URL: 'https://ads.adpool-e2e.com',
-    SUBREQUEST_BUDGET: '900',
+    SUBREQUEST_BUDGET: '900', CORS_ALLOW_ORIGINS: 'https://demo.adpool-e2e.com, http://localhost:5173',
   };
   const logPath = path.join(tmp, 'wrangler.log');
   const log = fs.openSync(logPath, 'w');
@@ -311,6 +311,20 @@ async function run(F, K) {
   state.genesis = DEVNET;
   r = await fetch(W + '/v1/health/rpc');
   check('E0b devnet → ok', r.status === 200);
+
+  // E-CORS — listed origins get their own Origin echoed back; others get no CORS headers
+  const DEMO = 'https://demo.adpool-e2e.com';
+  r = await fetch(W + '/v1/creative', { method: 'OPTIONS', headers: { origin: DEMO, 'access-control-request-method': 'POST' } });
+  check('E-CORS preflight, listed origin → 204 + allow-origin/methods',
+    r.status === 204 && r.headers.get('access-control-allow-origin') === DEMO
+      && /POST/.test(r.headers.get('access-control-allow-methods') ?? ''), `${r.status} ${[...r.headers]}`);
+  r = await fetch(W + '/health', { headers: { origin: DEMO } });
+  check('E-CORS GET, listed origin → allow-origin + Vary: Origin',
+    r.status === 200 && r.headers.get('access-control-allow-origin') === DEMO && /Origin/.test(r.headers.get('vary') ?? ''));
+  r = await fetch(W + '/health', { headers: { origin: 'https://evil.adpool-e2e.com' } });
+  check('E-CORS other origin → no allow-origin', r.status === 200 && r.headers.get('access-control-allow-origin') === null);
+  r = await fetch(W + '/v1/creative', { method: 'OPTIONS', headers: { origin: 'https://evil.adpool-e2e.com' } });
+  check('E-CORS preflight, other origin → 204 without allow-origin', r.status === 204 && r.headers.get('access-control-allow-origin') === null);
 
   // E1 — full approve
   let n0 = stats.sent.length;

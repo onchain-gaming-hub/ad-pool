@@ -27,6 +27,9 @@ MAX_SUBMISSIONS_PER_HOUR = "10"
 # Pubkey of MODERATOR_KEYPAIR (RoleMember(Moderator) on devnet — runbook §4). The Worker
 # refuses to sign if the secret holds a different key.
 MODERATOR_ADDRESS = "DX6bYh6AwfWpBQT8UBevNocYepauHd965RCr1rE6G6Db"
+# Browser origins allowed to call the Worker cross-origin (comma-separated exact origins,
+# e.g. "https://app.example,http://localhost:5173"). Empty = no CORS headers.
+CORS_ALLOW_ORIGINS = ""
 # Origin of `GET /ads/<sha256>.<ext>` → on-chain image_url. ⚠️ placeholder until W6 deploy
 # (FE can always derive the object from image_sha256 + the Worker origin).
 PUBLIC_BASE_URL = "https://ad-pool.devnet.local"

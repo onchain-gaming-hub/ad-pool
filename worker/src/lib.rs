@@ -18,6 +18,7 @@ pub mod accounts;
 pub mod ads;
 pub mod auth;
 pub mod config;
+pub mod cors;
 pub mod crank;
 pub mod decision;
 pub mod defaultad;
@@ -1248,6 +1249,41 @@ mod app {
 
     #[event(fetch)]
     async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+        let allowlist = crate::cors::parse_allowlist(
+            env.var("CORS_ALLOW_ORIGINS")
+                .ok()
+                .map(|v| v.to_string())
+                .as_deref(),
+        );
+        let origin = req.headers().get("origin").ok().flatten();
+        let allow = crate::cors::allowed_origin(origin.as_deref(), &allowlist).map(str::to_string);
+        if req.method() == Method::Options {
+            // Preflight: 204 with CORS headers when the origin is listed, bare 204 otherwise.
+            let mut resp = Response::empty()?.with_status(204);
+            if let Some(o) = &allow {
+                set_cors(&mut resp, o, true);
+            }
+            return Ok(resp);
+        }
+        let mut resp = route(req, env).await?;
+        if let Some(o) = &allow {
+            set_cors(&mut resp, o, false);
+        }
+        Ok(resp)
+    }
+
+    fn set_cors(resp: &mut Response, origin: &str, preflight: bool) {
+        let h = resp.headers_mut();
+        let _ = h.set("access-control-allow-origin", origin);
+        let _ = h.append("vary", "Origin");
+        if preflight {
+            let _ = h.set("access-control-allow-methods", crate::cors::ALLOW_METHODS);
+            let _ = h.set("access-control-allow-headers", crate::cors::ALLOW_HEADERS);
+            let _ = h.set("access-control-max-age", crate::cors::MAX_AGE);
+        }
+    }
+
+    async fn route(req: Request, env: Env) -> Result<Response> {
         Router::new()
             .get("/health", |_, ctx| {
                 let cfg = load(&ctx.env)?;

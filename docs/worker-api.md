@@ -4,6 +4,10 @@ The HTTP contract of the moderator Worker: what an advertiser's frontend (extern
 
 Code: `worker/src/{auth,image,submission,gate,moderation,urlcheck,webrisk,decision,tx,ads,defaultad}.rs` · tests: `worker/tests/{intake,golden}.rs`, unit tests, and `worker/tests/e2e.mjs` (a client written from this document, so drift between this file and the Worker fails a test). For the frontend side (PDAs, account offsets, bidding, display rules) see [`SKILL.md`](../SKILL.md).
 
+## CORS
+
+Browser pages on another origin can call the Worker only if their origin is listed in the Worker's `CORS_ALLOW_ORIGINS` var (comma-separated exact origins, e.g. `https://app.example,http://localhost:5173`; no wildcard). A listed origin gets `Access-Control-Allow-Origin: <its origin>` + `Vary: Origin` on every response, and `OPTIONS` preflights answer 204 with the allowed methods (`GET, POST, OPTIONS`) and headers. Unset or empty → no CORS headers.
+
 ## `POST /v1/creative` — the winning bidder submits a creative
 
 `multipart/form-data`. A `Content-Length` header is required (missing → 411; larger than `MAX_IMAGE_BYTES` + 64 KiB → 413).
