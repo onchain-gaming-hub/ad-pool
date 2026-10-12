@@ -1,6 +1,7 @@
 [package]
 name = "ad_pool"
 version = "0.1.0"
+license = "MIT"
 description = "ad-pool — per-game ad slot auctions (SOL, per epoch) with moderated creatives for blockchain-games-hub"
 edition.workspace = true
 rust-version.workspace = true
